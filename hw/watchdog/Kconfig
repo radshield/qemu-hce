@@ -20,3 +20,7 @@ config WDT_IMX2
 
 config WDT_SBSA
     bool
+
+config WDT_AUTO
+    bool
+    default y
