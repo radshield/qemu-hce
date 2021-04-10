@@ -1263,6 +1263,19 @@ SRST
 ERST
 
     {
+        .name       = "stop_delayed",
+        .args_type  = "ns:l",
+        .params     = "ns",
+        .help       = "prepare to stop again soon",
+        .cmd        = hmp_stop_delayed,
+    },
+
+SRST
+``stop_delayed``
+  Prepare to stop CPU again after a fixed virtual time delay.
+ERST
+
+    {
         .name       = "netdev_add",
         .args_type  = "netdev:O",
         .params     = "[user|tap|socket|vde|bridge|hubport|netmap|vhost-user],id=str[,prop=value][,...]",
