@@ -381,6 +381,11 @@ static void hmp_info_cpustats(Monitor *mon, const QDict *qdict)
     cpu_dump_statistics(cs, 0);
 }
 
+static void hmp_info_vtime(Monitor *mon, const QDict *qdict)
+{
+    monitor_printf(mon, "virtual time: %ld ns\n", qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+}
+
 static void hmp_info_trace_events(Monitor *mon, const QDict *qdict)
 {
     const char *name = qdict_get_try_str(qdict, "name");

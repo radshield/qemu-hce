@@ -156,6 +156,19 @@ SRST
 ERST
 
     {
+        .name       = "vtime",
+        .args_type  = "",
+        .params     = "",
+        .help       = "show current virtual time",
+        .cmd        = hmp_info_vtime,
+    },
+
+SRST
+  ``info vtime``
+    Show current virtual time.
+ERST
+
+    {
         .name       = "history",
         .args_type  = "",
         .params     = "",
