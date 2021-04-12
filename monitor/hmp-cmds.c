@@ -1615,7 +1615,7 @@ static void hmp_stop_delayed_cb(void *opaque)
     timer_free(status->timer);
     g_free(status);
 
-    qemu_log("Stop delay expired at %ld.\n", qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+    // qemu_log("Stop delay expired at %ld.\n", qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
     vm_stop(RUN_STATE_PAUSED);
 }
 
@@ -1627,7 +1627,7 @@ void hmp_stop_delayed(Monitor *mon, const QDict *qdict)
     status->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, hmp_stop_delayed_cb, status);
 
     int64_t deadline = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) + ns;
-    qemu_log("Stop delay (%ld) enqueued at %ld.\n", deadline, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+    // qemu_log("Stop delay (%ld) enqueued at %ld.\n", deadline, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
     timer_mod(status->timer, deadline);
 }
 
