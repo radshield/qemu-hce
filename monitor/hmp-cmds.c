@@ -1621,7 +1621,7 @@ static void hmp_stop_delayed_cb(void *opaque)
 
 void hmp_stop_delayed(Monitor *mon, const QDict *qdict)
 {
-    int ns = qdict_get_int(qdict, "ns");
+    int64_t ns = qdict_get_int(qdict, "ns");
 
     HMPStopStatus *status = g_malloc0(sizeof(*status));
     status->timer = timer_new_ns(QEMU_CLOCK_VIRTUAL, hmp_stop_delayed_cb, status);
