@@ -249,6 +249,15 @@ bool qemu_vmstop_requested(RunState *r)
     return *r < RUN_STATE__MAX;
 }
 
+bool qemu_vmstop_peek_is_stopping(void)
+{
+    RunState r;
+    qemu_mutex_lock(&vmstop_lock);
+    r = vmstop_requested;
+    qemu_mutex_unlock(&vmstop_lock);
+    return r != RUN_STATE__MAX && r != RUN_STATE_RUNNING;
+}
+
 void qemu_system_vmstop_request_prepare(void)
 {
     qemu_mutex_lock(&vmstop_lock);
