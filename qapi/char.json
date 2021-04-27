@@ -244,6 +244,17 @@
   'base': 'ChardevCommon' }
 
 ##
+# @ChardevTimesync:
+#
+# Configuration info for timesync unix socket chardevs.
+#
+# @path: unix socket path to connect to
+##
+{ 'struct': 'ChardevTimesync',
+'data': { 'path': 'str' },
+'base': 'ChardevCommon' }
+
+##
 # @ChardevSocket:
 #
 # Configuration info for (stream) socket chardevs.
@@ -402,6 +413,7 @@
             'serial': 'ChardevHostdev',
             'parallel': 'ChardevHostdev',
             'pipe': 'ChardevHostdev',
+            'timesync': 'ChardevTimesync',
             'socket': 'ChardevSocket',
             'udp': 'ChardevUdp',
             'pty': 'ChardevCommon',

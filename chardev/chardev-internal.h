@@ -26,6 +26,8 @@
 
 #include "chardev/char.h"
 #include "chardev/char-fe.h"
+#include "chardev/char-io.h"
+#include "io/channel-socket.h"
 #include "qom/object.h"
 
 #define MAX_MUX 4
@@ -61,6 +63,26 @@ DECLARE_INSTANCE_CHECKER(MuxChardev, MUX_CHARDEV,
 
 void mux_set_focus(Chardev *chr, int focus);
 void mux_chr_send_all_event(Chardev *chr, QEMUChrEvent event);
+
+struct TimesyncChardev {
+    Chardev parent;
+
+    SocketAddress *addr;
+
+    QIOChannel *ioc; /* Client I/O channel */
+    QIOChannelSocket *sioc; /* Client main channel */
+
+    QemuMutex timesync_protocol_lock;
+    QEMUTimer *follower_timer;
+    uint32_t seq_num;
+    uint8_t *pending_read_data;
+    int pending_read_offset;
+    int pending_read_len;
+};
+typedef struct TimesyncChardev TimesyncChardev;
+
+DECLARE_INSTANCE_CHECKER(TimesyncChardev, TIMESYNC_CHARDEV,
+                         TYPE_CHARDEV_TIMESYNC)
 
 Object *get_chardevs_root(void);
 

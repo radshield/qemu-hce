@@ -16,6 +16,7 @@ chardev_ss.add(when: 'CONFIG_POSIX', if_true: files(
   'char-fd.c',
   'char-parallel.c',
   'char-pty.c',
+  'char-timesync.c',
 ))
 chardev_ss.add(when: 'CONFIG_WIN32', if_true: files(
   'char-console.c',
