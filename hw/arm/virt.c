@@ -144,7 +144,6 @@ static const MemMapEntry base_memmap[] = {
     /* This redistributor space allows up to 2*64kB*123 CPUs */
     [VIRT_GIC_REDIST] =         { 0x080A0000, 0x00F60000 },
     [VIRT_UART] =               { 0x09000000, 0x00001000 },
-    [VIRT_UART2] =              { 0x09001000, 0x00001000 },
     [VIRT_RTC] =                { 0x09010000, 0x00001000 },
     [VIRT_FW_CFG] =             { 0x09020000, 0x00000018 },
     [VIRT_GPIO] =               { 0x09030000, 0x00001000 },
@@ -186,7 +185,6 @@ static MemMapEntry extended_memmap[] = {
 
 static const int a15irqmap[] = {
     [VIRT_UART] = 1,
-    [VIRT_UART2] = 1,  // TODO: does this need a separate line
     [VIRT_RTC] = 2,
     [VIRT_PCIE] = 3, /* ... to 6 */
     [VIRT_GPIO] = 7,
@@ -779,7 +777,7 @@ static void create_uart(const VirtMachineState *vms, int uart,
     qemu_fdt_setprop(ms->fdt, nodename, "clock-names",
                          clocknames, sizeof(clocknames));
 
-    if (uart == VIRT_UART || uart == VIRT_UART2) {
+    if (uart == VIRT_UART) {
         qemu_fdt_setprop_string(ms->fdt, "/chosen", "stdout-path", nodename);
     } else {
         /* Mark as not usable by the normal world */
@@ -2048,11 +2046,10 @@ static void machvirt_init(MachineState *machine)
     fdt_add_pmu_nodes(vms);
 
     create_uart(vms, VIRT_UART, sysmem, serial_hd(0));
-    create_uart(vms, VIRT_UART2, sysmem, serial_hd(1));
 
     if (vms->secure) {
         create_secure_ram(vms, secure_sysmem, secure_tag_sysmem);
-        create_uart(vms, VIRT_SECURE_UART, secure_sysmem, serial_hd(2));
+        create_uart(vms, VIRT_SECURE_UART, secure_sysmem, serial_hd(1));
     }
 
     if (tag_sysmem) {
