@@ -53,13 +53,16 @@ static void timesync_set_timer(Chardev *chr, int64_t expire_at) {
 }
 
 // caller must hold the lock on chr
-static int timesync_chr_interact(Chardev *chr, const void *buf, size_t len, Error **errp)
+static int timesync_chr_interact(Chardev *chr, const void *buf, size_t len, const char *reason, Error **errp)
 {
     TimesyncChardev *ts = TIMESYNC_CHARDEV(chr);
 
     uint32_t seq_num = ts->seq_num++;
 
     int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+    int64_t now_rt = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
+    fprintf(ts->log, "timesync_chr_interact start: now=%"PRId64" now_rt=%"PRId64" buflen=%zu, reason='%s'\n",
+            now, now_rt, len, reason);
 
     // make sure the datatypes fit
     assert(len == (int) (uint32_t) len);
@@ -110,6 +113,10 @@ static int timesync_chr_interact(Chardev *chr, const void *buf, size_t len, Erro
     int reply_len = (int) g_ntohl(reply_lines[4]);
     // make sure the datatypes fit
     assert((uint32_t) reply_len == g_ntohl(reply_lines[4]));
+
+    now_rt = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
+    fprintf(ts->log, "timesync_chr_interact   end: now=%"PRId64" now_rt=%"PRId64" buflen=%zu, reason='%s'\n",
+            now, now_rt, len, reason);
 
     if (reply_len > 0) {
         if (ts->pending_read_data != NULL && ts->pending_read_offset < ts->pending_read_len) {
@@ -164,7 +171,7 @@ static void timesync_pump_input(Chardev *chr)
         assert(ts->pending_read_offset <= ts->pending_read_len);
         if (ts->pending_read_offset == ts->pending_read_len) {
             // that was the last of our data... check immediately whether there's more
-            int result = timesync_chr_interact(chr, NULL, 0, &error_fatal);
+            int result = timesync_chr_interact(chr, NULL, 0, "pump_input recheck", &error_fatal);
             // because we fatal on error
             assert(result == 0);
         }
@@ -176,7 +183,7 @@ static void timesync_expire_cb(void *opaque)
     Chardev *chr = CHARDEV(opaque);
     TimesyncChardev *ts = TIMESYNC_CHARDEV(opaque);
     qemu_mutex_lock(&ts->timesync_protocol_lock);
-    int result = timesync_chr_interact(chr, NULL, 0, &error_fatal);
+    int result = timesync_chr_interact(chr, NULL, 0, "expire_cb", &error_fatal);
     // because we fatal on error
     assert(result == 0);
     // and make sure any received input is fed to the character device frontend
@@ -189,7 +196,7 @@ static int timesync_chr_write(Chardev *chr, const uint8_t *buf, int len)
 {
     TimesyncChardev *ts = TIMESYNC_CHARDEV(chr);
     qemu_mutex_lock(&ts->timesync_protocol_lock);
-    int result = timesync_chr_interact(chr, buf, len, &error_fatal);
+    int result = timesync_chr_interact(chr, buf, len, "chr_write", &error_fatal);
     // because we fatal on error
     assert(result == 0);
     // and make sure any received input is fed to the character device frontend
@@ -256,6 +263,17 @@ static void qemu_chr_open_timesync(Chardev *chr, ChardevBackend *backend, bool *
         return;
     }
 
+    char *log_name = g_strdup_printf("%s.log", opts->path);
+    ts->log = fopen(log_name, "w");
+    if (ts->log == NULL) {
+        error_setg_errno(errp, errno,
+                         "Unable to open %s", log_name);
+        object_unref(OBJECT(sioc));
+        g_free(log_name);
+        return;
+    }
+    g_free(log_name);
+
     ts->ioc = QIO_CHANNEL(sioc);
     object_ref(OBJECT(sioc));
     ts->sioc = sioc;
@@ -271,7 +289,7 @@ static void qemu_chr_open_timesync(Chardev *chr, ChardevBackend *backend, bool *
     chr->filename = g_strdup_printf("unix:%s", ((struct sockaddr_un *)(ss))->sun_path);
 
     // very first interaction to set up any initial timers
-    timesync_chr_interact(chr, NULL, 0, errp);
+    timesync_chr_interact(chr, NULL, 0, "initial", errp);
 
     qemu_chr_be_event(chr, CHR_EVENT_OPENED);
 
@@ -299,6 +317,8 @@ static void char_timesync_finalize(Object *obj)
     if (ts->follower_timer != NULL) {
         timer_free(ts->follower_timer);
     }
+    fclose(ts->log);
+    ts->log = NULL;
     object_unref(OBJECT(ts->sioc));
     ts->sioc = NULL;
     object_unref(OBJECT(ts->ioc));

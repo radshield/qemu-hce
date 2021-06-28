@@ -28,6 +28,7 @@
 #include "chardev/char-fe.h"
 #include "chardev/char-io.h"
 #include "io/channel-socket.h"
+#include "io/channel-file.h"
 #include "qom/object.h"
 
 #define MAX_MUX 4
@@ -71,6 +72,7 @@ struct TimesyncChardev {
 
     QIOChannel *ioc; /* Client I/O channel */
     QIOChannelSocket *sioc; /* Client main channel */
+    FILE *log;
 
     QemuMutex timesync_protocol_lock;
     QEMUTimer *follower_timer;
