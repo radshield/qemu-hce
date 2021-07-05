@@ -68,7 +68,9 @@ static int vfp_gdb_get_reg(CPUARMState *env, GByteArray *buf, int reg)
         nregs += 16;
         if (reg < nregs) {
             uint64_t *q = aa32_vfp_qreg(env, reg - 32);
-            return gdb_get_reg128(buf, q[0], q[1]);
+            gdb_get_reg64(buf, q[0]);
+            gdb_get_reg64(buf, q[1]);
+            return 16;
         }
     }
     switch (reg - nregs) {
