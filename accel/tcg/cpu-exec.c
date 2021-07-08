@@ -525,6 +525,20 @@ static inline bool cpu_handle_exception(CPUState *cpu, int *ret)
             qemu_mutex_unlock_iothread();
             cpu->exception_index = -1;
 
+            if (icount_enabled()) {
+                // if we had a real exception, we must have had at least one instruction pending for that exception to
+                // have occurred during. so either we must have either at least one instruction outstanding in
+                // icount_decr or one instruction outstanding in icount_extra.
+                if (cpu_neg(cpu)->icount_decr.u16.low > 0) {
+                    cpu_neg(cpu)->icount_decr.u16.low--;
+                } else {
+                    g_assert(cpu->icount_extra > 0);
+                    cpu->icount_extra--;
+                }
+                // this is necessary so that, if we get stuck in an infinite trap loop, we'll actually make progress
+                // through virtual time.
+            }
+
             if (unlikely(cpu->singlestep_enabled)) {
                 /*
                  * After processing the exception, ensure an EXCP_DEBUG is
