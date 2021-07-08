@@ -526,17 +526,15 @@ static inline bool cpu_handle_exception(CPUState *cpu, int *ret)
             cpu->exception_index = -1;
 
             if (icount_enabled()) {
-                // if we had a real exception, we must have had at least one instruction pending for that exception to
-                // have occurred during. so either we must have either at least one instruction outstanding in
-                // icount_decr or one instruction outstanding in icount_extra.
+                // we must consume at least one icount insn on each trap; if we don't, we could get
+                // into a trap loop that prevents virtual time from ever advancing.
                 if (cpu_neg(cpu)->icount_decr.u16.low > 0) {
                     cpu_neg(cpu)->icount_decr.u16.low--;
-                } else {
-                    g_assert(cpu->icount_extra > 0);
+                } else if (cpu->icount_extra > 0) {
                     cpu->icount_extra--;
+                } else {
+                    qemu_printf("warning: unexpectedly hit a trap with 0 instructions outstanding\n");
                 }
-                // this is necessary so that, if we get stuck in an infinite trap loop, we'll actually make progress
-                // through virtual time.
             }
 
             if (unlikely(cpu->singlestep_enabled)) {
