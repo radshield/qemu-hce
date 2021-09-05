@@ -61,7 +61,8 @@ static int timesync_chr_interact(Chardev *chr, const void *buf, size_t len, cons
 
     int64_t now = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
     int64_t now_rt = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
-    fprintf(ts->log, "timesync_chr_interact start: now=%"PRId64" now_rt=%"PRId64" buflen=%zu, reason='%s'\n",
+    // {start,end},now_vt,now_rt,{tx,rx}len,reason
+    fprintf(ts->log, "start,%"PRId64",%"PRId64",%zu,%s\n",
             now, now_rt, len, reason);
 
     // make sure the datatypes fit
@@ -115,8 +116,8 @@ static int timesync_chr_interact(Chardev *chr, const void *buf, size_t len, cons
     assert((uint32_t) reply_len == g_ntohl(reply_lines[4]));
 
     now_rt = qemu_clock_get_ns(QEMU_CLOCK_REALTIME);
-    fprintf(ts->log, "timesync_chr_interact   end: now=%"PRId64" now_rt=%"PRId64" buflen=%zu, reason='%s'\n",
-            now, now_rt, len, reason);
+    fprintf(ts->log, "end,%"PRId64",%"PRId64",%d,%s\n",
+            now, now_rt, reply_len, reason);
 
     if (reply_len > 0) {
         if (ts->pending_read_data != NULL && ts->pending_read_offset < ts->pending_read_len) {
