@@ -144,6 +144,7 @@ struct VirtMachineState {
     bool virt;
     bool ras;
     bool mte;
+    bool enable_load_dtb;
     OnOffAuto acpi;
     VirtGICType gic_version;
     VirtIOMMUType iommu;

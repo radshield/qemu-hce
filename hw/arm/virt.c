@@ -1545,21 +1545,23 @@ void virt_machine_done(Notifier *notifier, void *data)
     struct arm_boot_info *info = &vms->bootinfo;
     AddressSpace *as = arm_boot_address_space(cpu, info);
 
-    /*
-     * If the user provided a dtb, we assume the dynamic sysbus nodes
-     * already are integrated there. This corresponds to a use case where
-     * the dynamic sysbus nodes are complex and their generation is not yet
-     * supported. In that case the user can take charge of the guest dt
-     * while qemu takes charge of the qom stuff.
-     */
-    if (info->dtb_filename == NULL) {
-        platform_bus_add_all_fdt_nodes(ms->fdt, "/intc",
-                                       vms->memmap[VIRT_PLATFORM_BUS].base,
-                                       vms->memmap[VIRT_PLATFORM_BUS].size,
-                                       vms->irqmap[VIRT_PLATFORM_BUS]);
-    }
-    if (arm_load_dtb(info->dtb_start, info, info->dtb_limit, as, ms) < 0) {
-        exit(1);
+    if (vms->enable_load_dtb) {
+        /*
+         * If the user provided a dtb, we assume the dynamic sysbus nodes
+         * already are integrated there. This corresponds to a use case where
+         * the dynamic sysbus nodes are complex and their generation is not yet
+         * supported. In that case the user can take charge of the guest dt
+         * while qemu takes charge of the qom stuff.
+         */
+        if (info->dtb_filename == NULL) {
+            platform_bus_add_all_fdt_nodes(ms->fdt, "/intc",
+                                           vms->memmap[VIRT_PLATFORM_BUS].base,
+                                           vms->memmap[VIRT_PLATFORM_BUS].size,
+                                           vms->irqmap[VIRT_PLATFORM_BUS]);
+        }
+        if (arm_load_dtb(info->dtb_start, info, info->dtb_limit, as, ms) < 0) {
+            exit(1);
+        }
     }
 
     fw_cfg_add_extra_pci_roots(vms->bus, vms->fw_cfg);
@@ -2319,6 +2321,20 @@ static void virt_set_iommu(Object *obj, const char *value, Error **errp)
     }
 }
 
+static bool virt_get_enable_load_dtb(Object *obj, Error **errp)
+{
+    VirtMachineState *vms = VIRT_MACHINE(obj);
+
+    return vms->enable_load_dtb;
+}
+
+static void virt_set_enable_load_dtb(Object *obj, bool value, Error **errp)
+{
+    VirtMachineState *vms = VIRT_MACHINE(obj);
+
+    vms->enable_load_dtb = value;
+}
+
 static CpuInstanceProperties
 virt_cpu_index_to_props(MachineState *ms, unsigned cpu_index)
 {
@@ -2682,7 +2698,6 @@ static void virt_machine_class_init(ObjectClass *oc, void *data)
                                           "in ACPI table header."
                                           "The string may be up to 6 bytes in size");
 
-
     object_class_property_add_str(oc, "x-oem-table-id",
                                   virt_get_oem_table_id,
                                   virt_set_oem_table_id);
@@ -2690,6 +2705,13 @@ static void virt_machine_class_init(ObjectClass *oc, void *data)
                                           "Override the default value of field OEM Table ID "
                                           "in ACPI table header."
                                           "The string may be up to 8 bytes in size");
+
+    object_class_property_add_bool(oc, "x-enable-load-dtb",
+                                   virt_get_enable_load_dtb,
+                                   virt_set_enable_load_dtb);
+    object_class_property_set_description(oc, "x-enable-load-dtb",
+                                          "Set on/off to enable/disable loading the device tree "
+                                          "blob on boot and each reset");
 
 }
 
@@ -2728,6 +2750,9 @@ static void virt_instance_init(Object *obj)
 
     /* MTE is disabled by default.  */
     vms->mte = false;
+
+    /* Default setting is to enable dtb loading */
+    vms->enable_load_dtb = true;
 
     vms->irqmap = a15irqmap;
 
