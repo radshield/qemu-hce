@@ -27,9 +27,11 @@
 #include "hw/mem/memory-device.h"
 
 enum {
-    WDT_STRICT_REG_GREET = 0x00,
-    WDT_STRICT_REG_FEED  = 0x04,
-    WDT_STRICT_MMIO_SIZE = 0x08,
+    WDT_STRICT_REG_GREET        = 0x00,
+    WDT_STRICT_REG_FEED         = 0x04,
+    WDT_STRICT_REG_DEADLINE     = 0x08,
+    WDT_STRICT_REG_EARLY_OFFSET = 0x0C,
+    WDT_STRICT_MMIO_SIZE        = 0x10,
 };
 
 #define TYPE_WDT_STRICT "watchdog-strict"
@@ -184,6 +186,12 @@ static uint64_t wdt_strict_read(void *opaque, hwaddr addr, unsigned int size)
         // reads from FEED register should be rejected
         wdt_strict_immediate_reset(wdt_strict);
         return 0;
+    case WDT_STRICT_REG_DEADLINE:
+        // return (truncated) deadline for feed
+        return (uint32_t) wdt_strict->next_expiration_time;
+    case WDT_STRICT_REG_EARLY_OFFSET:
+        // return fixed offset of how early feeding is permitted
+        return (uint32_t) wdt_strict->early_feed_limit_ns;
     default:
         assert(false);
     }
@@ -198,7 +206,9 @@ static void wdt_strict_write(void *opaque, hwaddr addr,
 
     switch (addr) {
     case WDT_STRICT_REG_GREET:
-        // writes to GREET register should be rejected
+    case WDT_STRICT_REG_DEADLINE:
+    case WDT_STRICT_REG_EARLY_OFFSET:
+        // writes to read-only registers should be rejected
         wdt_strict_immediate_reset(wdt_strict);
         break;
     case WDT_STRICT_REG_FEED:
