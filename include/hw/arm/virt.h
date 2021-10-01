@@ -82,6 +82,7 @@ enum {
     VIRT_SECURE_UART,
     VIRT_SECURE_MEM,
     VIRT_SECURE_GPIO,
+    VIRT_WATCHDOG,
     VIRT_PCDIMM_ACPI,
     VIRT_ACPI_GED,
     VIRT_NVDIMM_ACPI,
@@ -145,6 +146,7 @@ struct VirtMachineState {
     bool ras;
     bool mte;
     bool enable_load_dtb;
+    bool enable_watchdog;
     OnOffAuto acpi;
     VirtGICType gic_version;
     VirtIOMMUType iommu;

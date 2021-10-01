@@ -21,6 +21,6 @@ config WDT_IMX2
 config WDT_SBSA
     bool
 
-config WDT_AUTO
+config WDT_STRICT
     bool
     default y
