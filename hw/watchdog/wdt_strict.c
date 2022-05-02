@@ -43,6 +43,7 @@ typedef struct WatchdogStrictState {
     QEMUTimer *timer;
     MemoryRegion mmio;
 
+    bool       disable_auto;
     uint64_t   feeding_period_ns;
     uint64_t   early_feed_limit_ns;
     bool       was_greeted;
@@ -76,7 +77,9 @@ static void wdt_strict_timer_expired(void *dev)
     timer_mod(wdt_strict->timer, wdt_strict->next_expiration_time);
 
     wdt_strict->was_greeted = false;
-    watchdog_perform_action();
+    if (!wdt_strict->disable_auto) {
+        watchdog_perform_action();
+    }
 }
 
 static void wdt_strict_defer_next_reset(WatchdogStrictState *wdt_strict)
@@ -259,6 +262,7 @@ static void wdt_strict_unrealize(DeviceState *dev)
 }
 
 static Property wdt_strict_properties[] = {
+    DEFINE_PROP_BOOL("disable-auto", WatchdogStrictState, disable_auto, false),
     DEFINE_PROP_UINT64("period-ns", WatchdogStrictState, feeding_period_ns, NANOSECONDS_PER_SECOND),
     DEFINE_PROP_UINT64("early-feed-ns", WatchdogStrictState, early_feed_limit_ns, NANOSECONDS_PER_SECOND),
     DEFINE_PROP_END_OF_LIST(),
