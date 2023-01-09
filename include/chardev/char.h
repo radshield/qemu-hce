@@ -237,6 +237,7 @@ OBJECT_DECLARE_TYPE(Chardev, ChardevClass, CHARDEV)
 #define TYPE_CHARDEV_CONSOLE "chardev-console"
 #define TYPE_CHARDEV_STDIO "chardev-stdio"
 #define TYPE_CHARDEV_PIPE "chardev-pipe"
+#define TYPE_CHARDEV_TIMESYNC "chardev-timesync"
 #define TYPE_CHARDEV_MEMORY "chardev-memory"
 #define TYPE_CHARDEV_PARALLEL "chardev-parallel"
 #define TYPE_CHARDEV_FILE "chardev-file"

@@ -702,6 +702,18 @@ static inline bool cpu_handle_exception(CPUState *cpu, int *ret)
             qemu_mutex_unlock_iothread();
             cpu->exception_index = -1;
 
+            if (icount_enabled()) {
+                // we must consume at least one icount insn on each trap; if we don't, we could get
+                // into a trap loop that prevents virtual time from ever advancing.
+                if (cpu_neg(cpu)->icount_decr.u16.low > 0) {
+                    cpu_neg(cpu)->icount_decr.u16.low--;
+                } else if (cpu->icount_extra > 0) {
+                    cpu->icount_extra--;
+                } else {
+                    qemu_printf("warning: unexpectedly hit a trap with 0 instructions outstanding\n");
+                }
+            }
+
             if (unlikely(cpu->singlestep_enabled)) {
                 /*
                  * After processing the exception, ensure an EXCP_DEBUG is

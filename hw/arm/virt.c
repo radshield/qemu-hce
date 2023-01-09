@@ -154,6 +154,7 @@ static const MemMapEntry base_memmap[] = {
     [VIRT_NVDIMM_ACPI] =        { 0x09090000, NVDIMM_ACPI_IO_LEN},
     [VIRT_PVTIME] =             { 0x090a0000, 0x00010000 },
     [VIRT_SECURE_GPIO] =        { 0x090b0000, 0x00001000 },
+    [VIRT_WATCHDOG] =           { 0x090c0000, 0x00001000 },
     [VIRT_MMIO] =               { 0x0a000000, 0x00000200 },
     /* ...repeating for a total of NUM_VIRTIO_TRANSPORTS, each of that size */
     [VIRT_PLATFORM_BUS] =       { 0x0c000000, 0x02000000 },
@@ -911,6 +912,16 @@ static void create_rtc(const VirtMachineState *vms)
     g_free(nodename);
 }
 
+static void create_watchdog(const VirtMachineState *vms)
+{
+    hwaddr base = vms->memmap[VIRT_WATCHDOG].base;
+
+    DeviceState *dev = qdev_new("watchdog-strict");
+    SysBusDevice *s = SYS_BUS_DEVICE(dev);
+    sysbus_realize_and_unref(s, &error_fatal);
+    sysbus_mmio_map(s, 0, base);
+}
+
 static DeviceState *gpio_key_dev;
 static void virt_powerdown_req(Notifier *n, void *opaque)
 {
@@ -1644,21 +1655,23 @@ void virt_machine_done(Notifier *notifier, void *data)
     struct arm_boot_info *info = &vms->bootinfo;
     AddressSpace *as = arm_boot_address_space(cpu, info);
 
-    /*
-     * If the user provided a dtb, we assume the dynamic sysbus nodes
-     * already are integrated there. This corresponds to a use case where
-     * the dynamic sysbus nodes are complex and their generation is not yet
-     * supported. In that case the user can take charge of the guest dt
-     * while qemu takes charge of the qom stuff.
-     */
-    if (info->dtb_filename == NULL) {
-        platform_bus_add_all_fdt_nodes(ms->fdt, "/intc",
-                                       vms->memmap[VIRT_PLATFORM_BUS].base,
-                                       vms->memmap[VIRT_PLATFORM_BUS].size,
-                                       vms->irqmap[VIRT_PLATFORM_BUS]);
-    }
-    if (arm_load_dtb(info->dtb_start, info, info->dtb_limit, as, ms) < 0) {
-        exit(1);
+    if (vms->enable_load_dtb) {
+        /*
+         * If the user provided a dtb, we assume the dynamic sysbus nodes
+         * already are integrated there. This corresponds to a use case where
+         * the dynamic sysbus nodes are complex and their generation is not yet
+         * supported. In that case the user can take charge of the guest dt
+         * while qemu takes charge of the qom stuff.
+         */
+        if (info->dtb_filename == NULL) {
+            platform_bus_add_all_fdt_nodes(ms->fdt, "/intc",
+                                           vms->memmap[VIRT_PLATFORM_BUS].base,
+                                           vms->memmap[VIRT_PLATFORM_BUS].size,
+                                           vms->irqmap[VIRT_PLATFORM_BUS]);
+        }
+        if (arm_load_dtb(info->dtb_start, info, info->dtb_limit, as, ms) < 0) {
+            exit(1);
+        }
     }
 
     fw_cfg_add_extra_pci_roots(vms->bus, vms->fw_cfg);
@@ -2238,6 +2251,10 @@ static void machvirt_init(MachineState *machine)
 
     create_rtc(vms);
 
+    if (vms->enable_watchdog) {
+        create_watchdog(vms);
+    }
+
     create_pcie(vms);
 
     if (has_ged && aarch64 && firmware_loaded && virt_is_acpi_enabled(vms)) {
@@ -2536,6 +2553,34 @@ static void virt_set_default_bus_bypass_iommu(Object *obj, bool value,
     VirtMachineState *vms = VIRT_MACHINE(obj);
 
     vms->default_bus_bypass_iommu = value;
+}
+
+static bool virt_get_enable_load_dtb(Object *obj, Error **errp)
+{
+    VirtMachineState *vms = VIRT_MACHINE(obj);
+
+    return vms->enable_load_dtb;
+}
+
+static void virt_set_enable_load_dtb(Object *obj, bool value, Error **errp)
+{
+    VirtMachineState *vms = VIRT_MACHINE(obj);
+
+    vms->enable_load_dtb = value;
+}
+
+static bool virt_get_enable_watchdog(Object *obj, Error **errp)
+{
+    VirtMachineState *vms = VIRT_MACHINE(obj);
+
+    return vms->enable_watchdog;
+}
+
+static void virt_set_enable_watchdog(Object *obj, bool value, Error **errp)
+{
+    VirtMachineState *vms = VIRT_MACHINE(obj);
+
+    vms->enable_watchdog = value;
 }
 
 static CpuInstanceProperties
@@ -3007,7 +3052,6 @@ static void virt_machine_class_init(ObjectClass *oc, void *data)
                                           "in ACPI table header."
                                           "The string may be up to 6 bytes in size");
 
-
     object_class_property_add_str(oc, "x-oem-table-id",
                                   virt_get_oem_table_id,
                                   virt_set_oem_table_id);
@@ -3015,6 +3059,19 @@ static void virt_machine_class_init(ObjectClass *oc, void *data)
                                           "Override the default value of field OEM Table ID "
                                           "in ACPI table header."
                                           "The string may be up to 8 bytes in size");
+
+    object_class_property_add_bool(oc, "x-enable-load-dtb",
+                                   virt_get_enable_load_dtb,
+                                   virt_set_enable_load_dtb);
+    object_class_property_set_description(oc, "x-enable-load-dtb",
+                                          "Set on/off to enable/disable loading the device tree "
+                                          "blob on boot and each reset");
+
+    object_class_property_add_bool(oc, "x-enable-watchdog",
+                                   virt_get_enable_watchdog,
+                                   virt_set_enable_watchdog);
+    object_class_property_set_description(oc, "x-enable-watchdog",
+                                          "Set on/off to enable/disable strict watchdog timer");
 
 }
 
@@ -3064,6 +3121,12 @@ static void virt_instance_init(Object *obj)
 
     /* MTE is disabled by default.  */
     vms->mte = false;
+
+    /* Default setting is to enable dtb loading */
+    vms->enable_load_dtb = true;
+
+    /* Default setting is to disable the watchdog */
+    vms->enable_watchdog = false;
 
     /* Supply kaslr-seed and rng-seed by default */
     vms->dtb_randomness = true;
