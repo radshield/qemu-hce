@@ -457,6 +457,7 @@
             'serial',
             'parallel',
             'pipe',
+            'timesync',
             'socket',
             'udp',
             'pty',
@@ -492,6 +493,14 @@
 ##
 { 'struct': 'ChardevHostdevWrapper',
   'data': { 'data': 'ChardevHostdev' } }
+
+##
+# @ChardevTimesyncWrapper:
+#
+# Since: 1.4
+##
+{ 'struct': 'ChardevTimesyncWrapper',
+  'data': { 'data': 'ChardevTimesync' } }
 
 ##
 # @ChardevSocketWrapper:
@@ -599,7 +608,7 @@
             'serial': 'ChardevHostdevWrapper',
             'parallel': 'ChardevHostdevWrapper',
             'pipe': 'ChardevHostdevWrapper',
-            'timesync': 'ChardevTimesync',
+            'timesync': 'ChardevTimesyncWrapper',
             'socket': 'ChardevSocketWrapper',
             'udp': 'ChardevUdpWrapper',
             'pty': 'ChardevCommonWrapper',

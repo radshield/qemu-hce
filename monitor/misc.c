@@ -364,17 +364,6 @@ static void hmp_info_history(Monitor *mon, const QDict *qdict)
     }
 }
 
-static void hmp_info_cpustats(Monitor *mon, const QDict *qdict)
-{
-    CPUState *cs = mon_get_cpu(mon);
-
-    if (!cs) {
-        monitor_printf(mon, "No CPU available\n");
-        return;
-    }
-    cpu_dump_statistics(cs, 0);
-}
-
 static void hmp_info_vtime(Monitor *mon, const QDict *qdict)
 {
     monitor_printf(mon, "virtual time: %ld ns\n", qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
