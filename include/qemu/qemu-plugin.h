@@ -137,6 +137,15 @@ typedef void (*qemu_plugin_vcpu_udata_cb_t)(unsigned int vcpu_index,
                                             void *userdata);
 
 /**
+ * typedef qemu_plugin_monitor_cmd_cb_t - monitor command callback
+ * @userdata: a pointer to some user data supplied when the callback
+ * was registered.
+ */
+typedef char* (*qemu_plugin_monitor_cmd_cb_t)(const char *plugin_name,
+                                              const char *command);
+
+
+/**
  * qemu_plugin_uninstall() - Uninstall a plugin
  * @id: this plugin's opaque ID
  * @cb: callback to be called once the plugin has been removed
@@ -546,6 +555,16 @@ const char *qemu_plugin_insn_symbol(const struct qemu_plugin_insn *insn);
  */
 void qemu_plugin_vcpu_for_each(qemu_plugin_id_t id,
                                qemu_plugin_vcpu_simple_cb_t cb);
+
+/**
+ * qemu_plugin_register_monitor_cmd_cb() - register a monitor command callback
+ * @id: plugin ID
+ * @cb: callback function
+ *
+ * The @cb function is called every time a vCPU resumes execution.
+ */
+void qemu_plugin_register_monitor_cmd_cb(qemu_plugin_id_t id,
+                                         qemu_plugin_monitor_cmd_cb_t cb);
 
 void qemu_plugin_register_flush_cb(qemu_plugin_id_t id,
                                    qemu_plugin_simple_cb_t cb);

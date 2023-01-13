@@ -27,6 +27,7 @@ enum qemu_plugin_event {
     QEMU_PLUGIN_EV_VCPU_SYSCALL_RET,
     QEMU_PLUGIN_EV_FLUSH,
     QEMU_PLUGIN_EV_ATEXIT,
+    QEMU_PLUGIN_EV_MONITOR_CMD,
     QEMU_PLUGIN_EV_MAX, /* total number of plugin events we support */
 };
 
@@ -70,6 +71,7 @@ int qemu_plugin_load_list(QemuPluginList *head, Error **errp);
 union qemu_plugin_cb_sig {
     qemu_plugin_simple_cb_t          simple;
     qemu_plugin_udata_cb_t           udata;
+    qemu_plugin_monitor_cmd_cb_t     monitor_cmd;
     qemu_plugin_vcpu_simple_cb_t     vcpu_simple;
     qemu_plugin_vcpu_udata_cb_t      vcpu_udata;
     qemu_plugin_vcpu_tb_trans_cb_t   vcpu_tb_trans;
@@ -209,6 +211,9 @@ void qemu_plugin_vcpu_mem_cb(CPUState *cpu, uint64_t vaddr,
 void qemu_plugin_flush_cb(void);
 
 void qemu_plugin_atexit_cb(void);
+
+char *qemu_plugin_monitor_cmd_cb(const char *name,
+                                 const char *cmd_data);
 
 void qemu_plugin_add_dyn_cb_arr(GArray *arr);
 

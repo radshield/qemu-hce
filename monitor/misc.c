@@ -80,6 +80,8 @@
 #include "sysemu/cpus.h"
 #include "qemu/cutils.h"
 
+#include "plugins/plugin.h"
+
 #if defined(TARGET_S390X)
 #include "hw/s390x/storage-keys.h"
 #include "hw/s390x/storage-attributes.h"
@@ -1241,6 +1243,9 @@ static void qmp_plugin_command(Monitor *mon, const QDict *qdict)
     const char *plugin_cmd = qdict_get_str(qdict, "command");
 
     monitor_printf(mon, "target_plugin: '%s', plugin_cmd: '%s'\n", target_plugin, plugin_cmd);
+    char *output = qemu_plugin_monitor_cmd_cb(target_plugin, plugin_cmd);
+    if (output != NULL)
+        monitor_printf(mon, "%d\n", output);
 }
 
 AddfdInfo *monitor_fdset_add_fd(int fd, bool has_fdset_id, int64_t fdset_id,

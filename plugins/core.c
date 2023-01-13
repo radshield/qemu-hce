@@ -161,6 +161,35 @@ static void plugin_cb__udata(enum qemu_plugin_event ev)
     }
 }
 
+/*
+ * Disable CFI checks.
+ * The callback function has been loaded from an external library so we do not
+ * have type information
+ */
+QEMU_DISABLE_CFI
+static char *plugin_cb__monitor(enum qemu_plugin_event ev,
+                                const char *plugin_name,
+                                const char *cmd_data)
+{
+    struct qemu_plugin_cb *cb, *next;
+
+    switch (ev) {
+    case QEMU_PLUGIN_EV_MONITOR_CMD:
+        QLIST_FOREACH_SAFE_RCU(cb, &plugin.cb_lists[ev], entry, next) {
+            qemu_plugin_monitor_cmd_cb_t func = cb->f.monitor_cmd;
+
+            char *ret_val = func(plugin_name, cmd_data);
+            if (ret_val != NULL)
+                return ret_val;
+        }
+        break;
+    default:
+        g_assert_not_reached();
+    }
+
+    return NULL;
+}
+
 static void
 do_plugin_register_cb(qemu_plugin_id_t id, enum qemu_plugin_event ev,
                       void *func, void *udata)
@@ -430,6 +459,12 @@ void qemu_plugin_flush_cb(void)
     qht_reset(&plugin.dyn_cb_arr_ht);
 
     plugin_cb__simple(QEMU_PLUGIN_EV_FLUSH);
+}
+
+char *qemu_plugin_monitor_cmd_cb(const char *target_plugin,
+                                 const char *cmd_data)
+{
+    return plugin_cb__monitor(QEMU_PLUGIN_EV_MONITOR_CMD, target_plugin, cmd_data);
 }
 
 void exec_inline_op(struct qemu_plugin_dyn_cb *cb)

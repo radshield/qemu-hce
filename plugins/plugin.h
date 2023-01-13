@@ -21,6 +21,7 @@
 struct qemu_plugin_state {
     QTAILQ_HEAD(, qemu_plugin_ctx) ctxs;
     QLIST_HEAD(, qemu_plugin_cb) cb_lists[QEMU_PLUGIN_EV_MAX];
+
     /*
      * Use the HT as a hash map by inserting k == v, which saves memory as
      * documented by GLib. The parent struct is obtained with container_of().

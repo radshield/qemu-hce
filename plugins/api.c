@@ -167,6 +167,13 @@ qemu_plugin_register_vcpu_syscall_ret_cb(qemu_plugin_id_t id,
     plugin_register_cb(id, QEMU_PLUGIN_EV_VCPU_SYSCALL_RET, cb);
 }
 
+void
+qemu_plugin_register_monitor_cmd_cb(qemu_plugin_id_t id,
+                                    qemu_plugin_monitor_cmd_cb_t cb)
+{
+    plugin_register_cb(id, QEMU_PLUGIN_EV_MONITOR_CMD, cb);
+}
+
 /*
  * Plugin Queries
  *
