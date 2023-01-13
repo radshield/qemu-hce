@@ -23,7 +23,7 @@ ERST
     {
         .name       = "plugin_run",
         .args_type  = "plugin:s,command:s",
-        .params     = "plugin_run plugin command",
+        .params     = "plugin command",
         .help       = "send a command to a QEMU plugin",
         .cmd        = qmp_plugin_command,
     },
