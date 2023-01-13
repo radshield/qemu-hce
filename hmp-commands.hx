@@ -21,6 +21,19 @@ SRST
 ERST
 
     {
+        .name       = "plugin_run",
+        .args_type  = "plugin:s,command:s",
+        .params     = "plugin_run plugin command",
+        .help       = "send a command to a QEMU plugin",
+        .cmd        = qmp_plugin_command,
+    },
+
+SRST
+``plugin``
+  Send a command to a QEMU plugin with support for monitor commands.
+ERST
+
+    {
         .name       = "commit",
         .args_type  = "device:B",
         .params     = "device|all",

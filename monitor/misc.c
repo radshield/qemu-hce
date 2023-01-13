@@ -366,7 +366,7 @@ static void hmp_info_history(Monitor *mon, const QDict *qdict)
 
 static void hmp_info_vtime(Monitor *mon, const QDict *qdict)
 {
-    monitor_printf(mon, "virtual time: %ld ns\n", qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
+    monitor_printf(mon, "virtual time: %lld ns\n", qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
 }
 
 static void hmp_info_trace_events(Monitor *mon, const QDict *qdict)
@@ -1233,6 +1233,14 @@ FdsetInfoList *qmp_query_fdsets(Error **errp)
     }
 
     return fdset_list;
+}
+
+static void qmp_plugin_command(Monitor *mon, const QDict *qdict)
+{
+    const char *target_plugin = qdict_get_str(qdict, "plugin");
+    const char *plugin_cmd = qdict_get_str(qdict, "command");
+
+    monitor_printf(mon, "target_plugin: '%s', plugin_cmd: '%s'\n", target_plugin, plugin_cmd);
 }
 
 AddfdInfo *monitor_fdset_add_fd(int fd, bool has_fdset_id, int64_t fdset_id,
