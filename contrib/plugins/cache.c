@@ -113,6 +113,10 @@ static uint64_t l1_dmisses;
 static uint64_t l2_mem_accesses;
 static uint64_t l2_misses;
 
+int l1_iassoc, l1_iblksize, l1_icachesize;
+int l1_dassoc, l1_dblksize, l1_dcachesize;
+int l2_assoc, l2_blksize, l2_cachesize;
+
 static int pow_of_two(int num)
 {
     g_assert((num & (num - 1)) == 0);
@@ -742,14 +746,24 @@ static void policy_init(void)
     }
 }
 
+char *plugin_monitor_cmd(const char *plugin_name,
+                         const char *command)
+{
+    if (strcmp(plugin_name, "cache") == 0)
+    {
+        return command;
+    }
+    else
+    {
+        return NULL;
+    }
+}
+
 QEMU_PLUGIN_EXPORT
 int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
                         int argc, char **argv)
 {
     int i;
-    int l1_iassoc, l1_iblksize, l1_icachesize;
-    int l1_dassoc, l1_dblksize, l1_dcachesize;
-    int l2_assoc, l2_blksize, l2_cachesize;
 
     limit = 32;
     sys = info->system_emulation;
@@ -853,6 +867,7 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
 
     qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
     qemu_plugin_register_atexit_cb(id, plugin_exit, NULL);
+    qemu_plugin_register_monitor_cmd_cb(id, plugin_monitor_cmd);
 
     miss_ht = g_hash_table_new_full(NULL, g_direct_equal, NULL, insn_free);
 
