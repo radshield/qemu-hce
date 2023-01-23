@@ -14,10 +14,13 @@ chardev_ss.add(files(
 ))
 chardev_ss.add(when: 'CONFIG_POSIX', if_true: [files(
   'char-fd.c',
-  'char-parallel.c',
   'char-pty.c',
   'char-timesync.c',
 ), util])
+if targetos in ['linux', 'gnu/kfreebsd', 'freebsd', 'dragonfly']
+  chardev_ss.add(files('char-parallel.c'))
+endif
+
 chardev_ss.add(when: 'CONFIG_WIN32', if_true: files(
   'char-console.c',
   'char-win-stdio.c',

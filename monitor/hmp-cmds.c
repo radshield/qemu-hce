@@ -25,7 +25,7 @@
 #include "qemu/timer.h"
 #include "qemu/sockets.h"
 #include "qemu/help_option.h"
-#include "monitor/monitor-internal.h"
+#include "monitor/monitor.h"
 #include "qapi/error.h"
 #include "qapi/clone-visitor.h"
 #include "qapi/opts-visitor.h"
@@ -37,12 +37,10 @@
 #include "qapi/qapi-commands-migration.h"
 #include "qapi/qapi-commands-misc.h"
 #include "qapi/qapi-commands-net.h"
-#include "qapi/qapi-commands-pci.h"
 #include "qapi/qapi-commands-rocker.h"
 #include "qapi/qapi-commands-run-state.h"
 #include "qapi/qapi-commands-stats.h"
 #include "qapi/qapi-commands-tpm.h"
-#include "qapi/qapi-commands-ui.h"
 #include "qapi/qapi-commands-virtio.h"
 #include "qapi/qapi-visit-virtio.h"
 #include "qapi/qapi-visit-net.h"
@@ -52,7 +50,6 @@
 #include "qapi/string-input-visitor.h"
 #include "qapi/string-output-visitor.h"
 #include "qom/object_interfaces.h"
-#include "ui/console.h"
 #include "qemu/cutils.h"
 #include "qemu/error-report.h"
 #include "hw/core/cpu.h"
@@ -60,10 +57,6 @@
 #include "migration/snapshot.h"
 #include "migration/misc.h"
 #include "qemu/log.h"
-
-#ifdef CONFIG_SPICE
-#include <spice/enums.h>
-#endif
 
 bool hmp_handle_error(Monitor *mon, Error *err)
 {
@@ -105,7 +98,7 @@ void hmp_info_name(Monitor *mon, const QDict *qdict)
     NameInfo *info;
 
     info = qmp_query_name(NULL);
-    if (info->has_name) {
+    if (info->name) {
         monitor_printf(mon, "%s\n", info->name);
     }
     qapi_free_NameInfo(info);
@@ -180,26 +173,6 @@ void hmp_info_chardev(Monitor *mon, const QDict *qdict)
     qapi_free_ChardevInfoList(char_info);
 }
 
-void hmp_info_mice(Monitor *mon, const QDict *qdict)
-{
-    MouseInfoList *mice_list, *mouse;
-
-    mice_list = qmp_query_mice(NULL);
-    if (!mice_list) {
-        monitor_printf(mon, "No mouse devices connected\n");
-        return;
-    }
-
-    for (mouse = mice_list; mouse; mouse = mouse->next) {
-        monitor_printf(mon, "%c Mouse #%" PRId64 ": %s%s\n",
-                       mouse->value->current ? '*' : ' ',
-                       mouse->value->index, mouse->value->name,
-                       mouse->value->absolute ? " (absolute)" : "");
-    }
-
-    qapi_free_MouseInfoList(mice_list);
-}
-
 void hmp_info_migrate(Monitor *mon, const QDict *qdict)
 {
     MigrationInfo *info;
@@ -220,8 +193,7 @@ void hmp_info_migrate(Monitor *mon, const QDict *qdict)
     if (info->has_status) {
         monitor_printf(mon, "Migration status: %s",
                        MigrationStatus_str(info->status));
-        if (info->status == MIGRATION_STATUS_FAILED &&
-            info->has_error_desc) {
+        if (info->status == MIGRATION_STATUS_FAILED && info->error_desc) {
             monitor_printf(mon, " (%s)\n", info->error_desc);
         } else {
             monitor_printf(mon, "\n");
@@ -243,7 +215,7 @@ void hmp_info_migrate(Monitor *mon, const QDict *qdict)
         }
     }
 
-    if (info->has_ram) {
+    if (info->ram) {
         monitor_printf(mon, "transferred ram: %" PRIu64 " kbytes\n",
                        info->ram->transferred >> 10);
         monitor_printf(mon, "throughput: %0.2f mbps\n",
@@ -296,7 +268,7 @@ void hmp_info_migrate(Monitor *mon, const QDict *qdict)
         }
     }
 
-    if (info->has_disk) {
+    if (info->disk) {
         monitor_printf(mon, "transferred disk: %" PRIu64 " kbytes\n",
                        info->disk->transferred >> 10);
         monitor_printf(mon, "remaining disk: %" PRIu64 " kbytes\n",
@@ -305,7 +277,7 @@ void hmp_info_migrate(Monitor *mon, const QDict *qdict)
                        info->disk->total >> 10);
     }
 
-    if (info->has_xbzrle_cache) {
+    if (info->xbzrle_cache) {
         monitor_printf(mon, "cache size: %" PRIu64 " bytes\n",
                        info->xbzrle_cache->cache_size);
         monitor_printf(mon, "xbzrle transferred: %" PRIu64 " kbytes\n",
@@ -322,7 +294,7 @@ void hmp_info_migrate(Monitor *mon, const QDict *qdict)
                        info->xbzrle_cache->overflow);
     }
 
-    if (info->has_compression) {
+    if (info->compression) {
         monitor_printf(mon, "compression pages: %" PRIu64 " pages\n",
                        info->compression->pages);
         monitor_printf(mon, "compression busy: %" PRIu64 "\n",
@@ -369,7 +341,7 @@ void hmp_info_migrate(Monitor *mon, const QDict *qdict)
         monitor_printf(mon, "]\n");
     }
 
-    if (info->has_vfio) {
+    if (info->vfio) {
         monitor_printf(mon, "vfio device transferred: %" PRIu64 " kbytes\n",
                        info->vfio->transferred >> 10);
     }
@@ -449,11 +421,11 @@ void hmp_info_migrate_parameters(Monitor *mon, const QDict *qdict)
         monitor_printf(mon, "%s: %u\n",
             MigrationParameter_str(MIGRATION_PARAMETER_MAX_CPU_THROTTLE),
             params->max_cpu_throttle);
-        assert(params->has_tls_creds);
+        assert(params->tls_creds);
         monitor_printf(mon, "%s: '%s'\n",
             MigrationParameter_str(MIGRATION_PARAMETER_TLS_CREDS),
             params->tls_creds);
-        assert(params->has_tls_hostname);
+        assert(params->tls_hostname);
         monitor_printf(mon, "%s: '%s'\n",
             MigrationParameter_str(MIGRATION_PARAMETER_TLS_HOSTNAME),
             params->tls_hostname);
@@ -519,174 +491,6 @@ void hmp_info_migrate_parameters(Monitor *mon, const QDict *qdict)
     qapi_free_MigrationParameters(params);
 }
 
-
-#ifdef CONFIG_VNC
-/* Helper for hmp_info_vnc_clients, _servers */
-static void hmp_info_VncBasicInfo(Monitor *mon, VncBasicInfo *info,
-                                  const char *name)
-{
-    monitor_printf(mon, "  %s: %s:%s (%s%s)\n",
-                   name,
-                   info->host,
-                   info->service,
-                   NetworkAddressFamily_str(info->family),
-                   info->websocket ? " (Websocket)" : "");
-}
-
-/* Helper displaying and auth and crypt info */
-static void hmp_info_vnc_authcrypt(Monitor *mon, const char *indent,
-                                   VncPrimaryAuth auth,
-                                   VncVencryptSubAuth *vencrypt)
-{
-    monitor_printf(mon, "%sAuth: %s (Sub: %s)\n", indent,
-                   VncPrimaryAuth_str(auth),
-                   vencrypt ? VncVencryptSubAuth_str(*vencrypt) : "none");
-}
-
-static void hmp_info_vnc_clients(Monitor *mon, VncClientInfoList *client)
-{
-    while (client) {
-        VncClientInfo *cinfo = client->value;
-
-        hmp_info_VncBasicInfo(mon, qapi_VncClientInfo_base(cinfo), "Client");
-        monitor_printf(mon, "    x509_dname: %s\n",
-                       cinfo->has_x509_dname ?
-                       cinfo->x509_dname : "none");
-        monitor_printf(mon, "    sasl_username: %s\n",
-                       cinfo->has_sasl_username ?
-                       cinfo->sasl_username : "none");
-
-        client = client->next;
-    }
-}
-
-static void hmp_info_vnc_servers(Monitor *mon, VncServerInfo2List *server)
-{
-    while (server) {
-        VncServerInfo2 *sinfo = server->value;
-        hmp_info_VncBasicInfo(mon, qapi_VncServerInfo2_base(sinfo), "Server");
-        hmp_info_vnc_authcrypt(mon, "    ", sinfo->auth,
-                               sinfo->has_vencrypt ? &sinfo->vencrypt : NULL);
-        server = server->next;
-    }
-}
-
-void hmp_info_vnc(Monitor *mon, const QDict *qdict)
-{
-    VncInfo2List *info2l, *info2l_head;
-    Error *err = NULL;
-
-    info2l = qmp_query_vnc_servers(&err);
-    info2l_head = info2l;
-    if (hmp_handle_error(mon, err)) {
-        return;
-    }
-    if (!info2l) {
-        monitor_printf(mon, "None\n");
-        return;
-    }
-
-    while (info2l) {
-        VncInfo2 *info = info2l->value;
-        monitor_printf(mon, "%s:\n", info->id);
-        hmp_info_vnc_servers(mon, info->server);
-        hmp_info_vnc_clients(mon, info->clients);
-        if (!info->server) {
-            /* The server entry displays its auth, we only
-             * need to display in the case of 'reverse' connections
-             * where there's no server.
-             */
-            hmp_info_vnc_authcrypt(mon, "  ", info->auth,
-                               info->has_vencrypt ? &info->vencrypt : NULL);
-        }
-        if (info->has_display) {
-            monitor_printf(mon, "  Display: %s\n", info->display);
-        }
-        info2l = info2l->next;
-    }
-
-    qapi_free_VncInfo2List(info2l_head);
-
-}
-#endif
-
-#ifdef CONFIG_SPICE
-void hmp_info_spice(Monitor *mon, const QDict *qdict)
-{
-    SpiceChannelList *chan;
-    SpiceInfo *info;
-    const char *channel_name;
-    const char * const channel_names[] = {
-        [SPICE_CHANNEL_MAIN] = "main",
-        [SPICE_CHANNEL_DISPLAY] = "display",
-        [SPICE_CHANNEL_INPUTS] = "inputs",
-        [SPICE_CHANNEL_CURSOR] = "cursor",
-        [SPICE_CHANNEL_PLAYBACK] = "playback",
-        [SPICE_CHANNEL_RECORD] = "record",
-        [SPICE_CHANNEL_TUNNEL] = "tunnel",
-        [SPICE_CHANNEL_SMARTCARD] = "smartcard",
-        [SPICE_CHANNEL_USBREDIR] = "usbredir",
-        [SPICE_CHANNEL_PORT] = "port",
-#if 0
-        /* minimum spice-protocol is 0.12.3, webdav was added in 0.12.7,
-         * no easy way to #ifdef (SPICE_CHANNEL_* is a enum).  Disable
-         * as quick fix for build failures with older versions. */
-        [SPICE_CHANNEL_WEBDAV] = "webdav",
-#endif
-    };
-
-    info = qmp_query_spice(NULL);
-
-    if (!info->enabled) {
-        monitor_printf(mon, "Server: disabled\n");
-        goto out;
-    }
-
-    monitor_printf(mon, "Server:\n");
-    if (info->has_port) {
-        monitor_printf(mon, "     address: %s:%" PRId64 "\n",
-                       info->host, info->port);
-    }
-    if (info->has_tls_port) {
-        monitor_printf(mon, "     address: %s:%" PRId64 " [tls]\n",
-                       info->host, info->tls_port);
-    }
-    monitor_printf(mon, "    migrated: %s\n",
-                   info->migrated ? "true" : "false");
-    monitor_printf(mon, "        auth: %s\n", info->auth);
-    monitor_printf(mon, "    compiled: %s\n", info->compiled_version);
-    monitor_printf(mon, "  mouse-mode: %s\n",
-                   SpiceQueryMouseMode_str(info->mouse_mode));
-
-    if (!info->has_channels || info->channels == NULL) {
-        monitor_printf(mon, "Channels: none\n");
-    } else {
-        for (chan = info->channels; chan; chan = chan->next) {
-            monitor_printf(mon, "Channel:\n");
-            monitor_printf(mon, "     address: %s:%s%s\n",
-                           chan->value->host, chan->value->port,
-                           chan->value->tls ? " [tls]" : "");
-            monitor_printf(mon, "     session: %" PRId64 "\n",
-                           chan->value->connection_id);
-            monitor_printf(mon, "     channel: %" PRId64 ":%" PRId64 "\n",
-                           chan->value->channel_type, chan->value->channel_id);
-
-            channel_name = "unknown";
-            if (chan->value->channel_type > 0 &&
-                chan->value->channel_type < ARRAY_SIZE(channel_names) &&
-                channel_names[chan->value->channel_type]) {
-                channel_name = channel_names[chan->value->channel_type];
-            }
-
-            monitor_printf(mon, "     channel name: %s\n", channel_name);
-        }
-    }
-
-out:
-    qapi_free_SpiceInfo(info);
-}
-#endif
-
 void hmp_info_balloon(Monitor *mon, const QDict *qdict)
 {
     BalloonInfo *info;
@@ -700,89 +504,6 @@ void hmp_info_balloon(Monitor *mon, const QDict *qdict)
     monitor_printf(mon, "balloon: actual=%" PRId64 "\n", info->actual >> 20);
 
     qapi_free_BalloonInfo(info);
-}
-
-static void hmp_info_pci_device(Monitor *mon, const PciDeviceInfo *dev)
-{
-    PciMemoryRegionList *region;
-
-    monitor_printf(mon, "  Bus %2" PRId64 ", ", dev->bus);
-    monitor_printf(mon, "device %3" PRId64 ", function %" PRId64 ":\n",
-                   dev->slot, dev->function);
-    monitor_printf(mon, "    ");
-
-    if (dev->class_info->has_desc) {
-        monitor_puts(mon, dev->class_info->desc);
-    } else {
-        monitor_printf(mon, "Class %04" PRId64, dev->class_info->q_class);
-    }
-
-    monitor_printf(mon, ": PCI device %04" PRIx64 ":%04" PRIx64 "\n",
-                   dev->id->vendor, dev->id->device);
-    if (dev->id->has_subsystem_vendor && dev->id->has_subsystem) {
-        monitor_printf(mon, "      PCI subsystem %04" PRIx64 ":%04" PRIx64 "\n",
-                       dev->id->subsystem_vendor, dev->id->subsystem);
-    }
-
-    if (dev->has_irq) {
-        monitor_printf(mon, "      IRQ %" PRId64 ", pin %c\n",
-                       dev->irq, (char)('A' + dev->irq_pin - 1));
-    }
-
-    if (dev->has_pci_bridge) {
-        monitor_printf(mon, "      BUS %" PRId64 ".\n",
-                       dev->pci_bridge->bus->number);
-        monitor_printf(mon, "      secondary bus %" PRId64 ".\n",
-                       dev->pci_bridge->bus->secondary);
-        monitor_printf(mon, "      subordinate bus %" PRId64 ".\n",
-                       dev->pci_bridge->bus->subordinate);
-
-        monitor_printf(mon, "      IO range [0x%04"PRIx64", 0x%04"PRIx64"]\n",
-                       dev->pci_bridge->bus->io_range->base,
-                       dev->pci_bridge->bus->io_range->limit);
-
-        monitor_printf(mon,
-                       "      memory range [0x%08"PRIx64", 0x%08"PRIx64"]\n",
-                       dev->pci_bridge->bus->memory_range->base,
-                       dev->pci_bridge->bus->memory_range->limit);
-
-        monitor_printf(mon, "      prefetchable memory range "
-                       "[0x%08"PRIx64", 0x%08"PRIx64"]\n",
-                       dev->pci_bridge->bus->prefetchable_range->base,
-                       dev->pci_bridge->bus->prefetchable_range->limit);
-    }
-
-    for (region = dev->regions; region; region = region->next) {
-        uint64_t addr, size;
-
-        addr = region->value->address;
-        size = region->value->size;
-
-        monitor_printf(mon, "      BAR%" PRId64 ": ", region->value->bar);
-
-        if (!strcmp(region->value->type, "io")) {
-            monitor_printf(mon, "I/O at 0x%04" PRIx64
-                                " [0x%04" PRIx64 "].\n",
-                           addr, addr + size - 1);
-        } else {
-            monitor_printf(mon, "%d bit%s memory at 0x%08" PRIx64
-                               " [0x%08" PRIx64 "].\n",
-                           region->value->mem_type_64 ? 64 : 32,
-                           region->value->prefetch ? " prefetchable" : "",
-                           addr, addr + size - 1);
-        }
-    }
-
-    monitor_printf(mon, "      id \"%s\"\n", dev->qdev_id);
-
-    if (dev->has_pci_bridge) {
-        if (dev->pci_bridge->has_devices) {
-            PciDeviceInfoList *cdev;
-            for (cdev = dev->pci_bridge->devices; cdev; cdev = cdev->next) {
-                hmp_info_pci_device(mon, cdev->value);
-            }
-        }
-    }
 }
 
 static int hmp_info_pic_foreach(Object *obj, void *opaque)
@@ -809,29 +530,6 @@ void hmp_info_pic(Monitor *mon, const QDict *qdict)
 {
     object_child_foreach_recursive(object_get_root(),
                                    hmp_info_pic_foreach, mon);
-}
-
-void hmp_info_pci(Monitor *mon, const QDict *qdict)
-{
-    PciInfoList *info_list, *info;
-    Error *err = NULL;
-
-    info_list = qmp_query_pci(&err);
-    if (err) {
-        monitor_printf(mon, "PCI devices not supported\n");
-        error_free(err);
-        return;
-    }
-
-    for (info = info_list; info; info = info->next) {
-        PciDeviceInfoList *dev;
-
-        for (dev = info->value->devices; dev; dev = dev->next) {
-            hmp_info_pci_device(mon, dev->value);
-        }
-    }
-
-    qapi_free_PciInfoList(info_list);
 }
 
 void hmp_info_tpm(Monitor *mon, const QDict *qdict)
@@ -866,10 +564,10 @@ void hmp_info_tpm(Monitor *mon, const QDict *qdict)
         case TPM_TYPE_PASSTHROUGH:
             tpo = ti->options->u.passthrough.data;
             monitor_printf(mon, "%s%s%s%s",
-                           tpo->has_path ? ",path=" : "",
-                           tpo->has_path ? tpo->path : "",
-                           tpo->has_cancel_path ? ",cancel-path=" : "",
-                           tpo->has_cancel_path ? tpo->cancel_path : "");
+                           tpo->path ? ",path=" : "",
+                           tpo->path ?: "",
+                           tpo->cancel_path ? ",cancel-path=" : "",
+                           tpo->cancel_path ?: "");
             break;
         case TPM_TYPE_EMULATOR:
             teo = ti->options->u.emulator.data;
@@ -1106,7 +804,6 @@ void hmp_announce_self(Monitor *mon, const QDict *qdict)
     params->interfaces = strList_from_comma_list(interfaces_str);
     params->has_interfaces = params->interfaces != NULL;
     params->id = g_strdup(id);
-    params->has_id = !!params->id;
     qmp_announce_self(params, NULL);
     qapi_free_AnnounceParameters(params);
 }
@@ -1238,19 +935,16 @@ void hmp_migrate_set_parameter(Monitor *mon, const QDict *qdict)
         visit_type_uint8(v, param, &p->max_cpu_throttle, &err);
         break;
     case MIGRATION_PARAMETER_TLS_CREDS:
-        p->has_tls_creds = true;
         p->tls_creds = g_new0(StrOrNull, 1);
         p->tls_creds->type = QTYPE_QSTRING;
         visit_type_str(v, param, &p->tls_creds->u.s, &err);
         break;
     case MIGRATION_PARAMETER_TLS_HOSTNAME:
-        p->has_tls_hostname = true;
         p->tls_hostname = g_new0(StrOrNull, 1);
         p->tls_hostname->type = QTYPE_QSTRING;
         visit_type_str(v, param, &p->tls_hostname->u.s, &err);
         break;
     case MIGRATION_PARAMETER_TLS_AUTHZ:
-        p->has_tls_authz = true;
         p->tls_authz = g_new0(StrOrNull, 1);
         p->tls_authz->type = QTYPE_QSTRING;
         visit_type_str(v, param, &p->tls_authz->u.s, &err);
@@ -1362,7 +1056,7 @@ void hmp_client_migrate_info(Monitor *mon, const QDict *qdict)
 
     qmp_client_migrate_info(protocol, hostname,
                             has_port, port, has_tls_port, tls_port,
-                            !!cert_subject, cert_subject, &err);
+                            cert_subject, &err);
     hmp_handle_error(mon, err);
 }
 
@@ -1381,80 +1075,6 @@ void hmp_x_colo_lost_heartbeat(Monitor *mon, const QDict *qdict)
     hmp_handle_error(mon, err);
 }
 
-void hmp_set_password(Monitor *mon, const QDict *qdict)
-{
-    const char *protocol  = qdict_get_str(qdict, "protocol");
-    const char *password  = qdict_get_str(qdict, "password");
-    const char *display = qdict_get_try_str(qdict, "display");
-    const char *connected = qdict_get_try_str(qdict, "connected");
-    Error *err = NULL;
-
-    SetPasswordOptions opts = {
-        .password = (char *)password,
-        .has_connected = !!connected,
-    };
-
-    opts.connected = qapi_enum_parse(&SetPasswordAction_lookup, connected,
-                                     SET_PASSWORD_ACTION_KEEP, &err);
-    if (err) {
-        goto out;
-    }
-
-    opts.protocol = qapi_enum_parse(&DisplayProtocol_lookup, protocol,
-                                    DISPLAY_PROTOCOL_VNC, &err);
-    if (err) {
-        goto out;
-    }
-
-    if (opts.protocol == DISPLAY_PROTOCOL_VNC) {
-        opts.u.vnc.has_display = !!display;
-        opts.u.vnc.display = (char *)display;
-    }
-
-    qmp_set_password(&opts, &err);
-
-out:
-    hmp_handle_error(mon, err);
-}
-
-void hmp_expire_password(Monitor *mon, const QDict *qdict)
-{
-    const char *protocol  = qdict_get_str(qdict, "protocol");
-    const char *whenstr = qdict_get_str(qdict, "time");
-    const char *display = qdict_get_try_str(qdict, "display");
-    Error *err = NULL;
-
-    ExpirePasswordOptions opts = {
-        .time = (char *)whenstr,
-    };
-
-    opts.protocol = qapi_enum_parse(&DisplayProtocol_lookup, protocol,
-                                    DISPLAY_PROTOCOL_VNC, &err);
-    if (err) {
-        goto out;
-    }
-
-    if (opts.protocol == DISPLAY_PROTOCOL_VNC) {
-        opts.u.vnc.has_display = !!display;
-        opts.u.vnc.display = (char *)display;
-    }
-
-    qmp_expire_password(&opts, &err);
-
-out:
-    hmp_handle_error(mon, err);
-}
-
-
-#ifdef CONFIG_VNC
-static void hmp_change_read_arg(void *opaque, const char *password,
-                                void *readline_opaque)
-{
-    qmp_change_vnc_password(password, NULL);
-    monitor_read_command(opaque, 1);
-}
-#endif
-
 void hmp_change(Monitor *mon, const QDict *qdict)
 {
     const char *device = qdict_get_str(qdict, "device");
@@ -1467,23 +1087,7 @@ void hmp_change(Monitor *mon, const QDict *qdict)
 
 #ifdef CONFIG_VNC
     if (strcmp(device, "vnc") == 0) {
-        if (read_only) {
-            monitor_printf(mon,
-                           "Parameter 'read-only-mode' is invalid for VNC\n");
-            return;
-        }
-        if (strcmp(target, "passwd") == 0 ||
-            strcmp(target, "password") == 0) {
-            if (!arg) {
-                MonitorHMP *hmp_mon = container_of(mon, MonitorHMP, common);
-                monitor_read_password(hmp_mon, hmp_change_read_arg, NULL);
-                return;
-            } else {
-                qmp_change_vnc_password(arg, &err);
-            }
-        } else {
-            monitor_printf(mon, "Expected 'password' after 'vnc'\n");
-        }
+        hmp_change_vnc(mon, device, target, arg, read_only, force, &err);
     } else
 #endif
     {
@@ -1497,8 +1101,7 @@ void hmp_change(Monitor *mon, const QDict *qdict)
             }
         }
 
-        qmp_blockdev_change_medium(true, device, false, NULL, target,
-                                   !!arg, arg, true, force,
+        qmp_blockdev_change_medium(device, NULL, target, arg, true, force,
                                    !!read_only, read_only_mode,
                                    &err);
     }
@@ -1521,7 +1124,7 @@ static void hmp_migrate_status_cb(void *opaque)
     info = qmp_query_migrate(NULL);
     if (!info->has_status || info->status == MIGRATION_STATUS_ACTIVE ||
         info->status == MIGRATION_STATUS_SETUP) {
-        if (info->has_disk) {
+        if (info->disk) {
             int progress;
 
             if (info->disk->remaining) {
@@ -1539,7 +1142,7 @@ static void hmp_migrate_status_cb(void *opaque)
         if (status->is_block_migration) {
             monitor_printf(status->mon, "\n");
         }
-        if (info->has_error_desc) {
+        if (info->error_desc) {
             error_report("%s", info->error_desc);
         }
         monitor_resume(status->mon);
@@ -1669,90 +1272,6 @@ void hmp_closefd(Monitor *mon, const QDict *qdict)
     Error *err = NULL;
 
     qmp_closefd(fdname, &err);
-    hmp_handle_error(mon, err);
-}
-
-void hmp_sendkey(Monitor *mon, const QDict *qdict)
-{
-    const char *keys = qdict_get_str(qdict, "keys");
-    KeyValue *v = NULL;
-    KeyValueList *head = NULL, **tail = &head;
-    int has_hold_time = qdict_haskey(qdict, "hold-time");
-    int hold_time = qdict_get_try_int(qdict, "hold-time", -1);
-    Error *err = NULL;
-    const char *separator;
-    int keyname_len;
-
-    while (1) {
-        separator = qemu_strchrnul(keys, '-');
-        keyname_len = separator - keys;
-
-        /* Be compatible with old interface, convert user inputted "<" */
-        if (keys[0] == '<' && keyname_len == 1) {
-            keys = "less";
-            keyname_len = 4;
-        }
-
-        v = g_malloc0(sizeof(*v));
-
-        if (strstart(keys, "0x", NULL)) {
-            char *endp;
-            int value = strtoul(keys, &endp, 0);
-            assert(endp <= keys + keyname_len);
-            if (endp != keys + keyname_len) {
-                goto err_out;
-            }
-            v->type = KEY_VALUE_KIND_NUMBER;
-            v->u.number.data = value;
-        } else {
-            int idx = index_from_key(keys, keyname_len);
-            if (idx == Q_KEY_CODE__MAX) {
-                goto err_out;
-            }
-            v->type = KEY_VALUE_KIND_QCODE;
-            v->u.qcode.data = idx;
-        }
-        QAPI_LIST_APPEND(tail, v);
-        v = NULL;
-
-        if (!*separator) {
-            break;
-        }
-        keys = separator + 1;
-    }
-
-    qmp_send_key(head, has_hold_time, hold_time, &err);
-    hmp_handle_error(mon, err);
-
-out:
-    qapi_free_KeyValue(v);
-    qapi_free_KeyValueList(head);
-    return;
-
-err_out:
-    monitor_printf(mon, "invalid parameter: %.*s\n", keyname_len, keys);
-    goto out;
-}
-
-void coroutine_fn
-hmp_screendump(Monitor *mon, const QDict *qdict)
-{
-    const char *filename = qdict_get_str(qdict, "filename");
-    const char *id = qdict_get_try_str(qdict, "device");
-    int64_t head = qdict_get_try_int(qdict, "head", 0);
-    const char *input_format  = qdict_get_try_str(qdict, "format");
-    Error *err = NULL;
-    ImageFormat format;
-
-    format = qapi_enum_parse(&ImageFormat_lookup, input_format,
-                              IMAGE_FORMAT_PPM, &err);
-    if (err) {
-        goto end;
-    }
-
-    qmp_screendump(filename, id != NULL, id, id != NULL, head,
-                   input_format != NULL, format, &err);
-end:
     hmp_handle_error(mon, err);
 }
 
@@ -2046,35 +1565,35 @@ void hmp_rocker_of_dpa_flows(Monitor *mon, const QDict *qdict)
             }
         }
 
-        if (key->has_eth_src) {
+        if (key->eth_src) {
             if ((strcmp(key->eth_src, "01:00:00:00:00:00") == 0) &&
-                (mask->has_eth_src) &&
+                mask->eth_src &&
                 (strcmp(mask->eth_src, "01:00:00:00:00:00") == 0)) {
                 monitor_printf(mon, " src <any mcast/bcast>");
             } else if ((strcmp(key->eth_src, "00:00:00:00:00:00") == 0) &&
-                (mask->has_eth_src) &&
+                mask->eth_src &&
                 (strcmp(mask->eth_src, "01:00:00:00:00:00") == 0)) {
                 monitor_printf(mon, " src <any ucast>");
             } else {
                 monitor_printf(mon, " src %s", key->eth_src);
-                if (mask->has_eth_src) {
+                if (mask->eth_src) {
                     monitor_printf(mon, "(%s)", mask->eth_src);
                 }
             }
         }
 
-        if (key->has_eth_dst) {
+        if (key->eth_dst) {
             if ((strcmp(key->eth_dst, "01:00:00:00:00:00") == 0) &&
-                (mask->has_eth_dst) &&
+                mask->eth_dst &&
                 (strcmp(mask->eth_dst, "01:00:00:00:00:00") == 0)) {
                 monitor_printf(mon, " dst <any mcast/bcast>");
             } else if ((strcmp(key->eth_dst, "00:00:00:00:00:00") == 0) &&
-                (mask->has_eth_dst) &&
+                mask->eth_dst &&
                 (strcmp(mask->eth_dst, "01:00:00:00:00:00") == 0)) {
                 monitor_printf(mon, " dst <any ucast>");
             } else {
                 monitor_printf(mon, " dst %s", key->eth_dst);
-                if (mask->has_eth_dst) {
+                if (mask->eth_dst) {
                     monitor_printf(mon, "(%s)", mask->eth_dst);
                 }
             }
@@ -2094,7 +1613,7 @@ void hmp_rocker_of_dpa_flows(Monitor *mon, const QDict *qdict)
             }
         }
 
-        if (key->has_ip_dst) {
+        if (key->ip_dst) {
             monitor_printf(mon, " dst %s", key->ip_dst);
         }
 
@@ -2173,7 +1692,7 @@ void hmp_rocker_of_dpa_groups(Monitor *mon, const QDict *qdict)
                            group->set_vlan_id & VLAN_VID_MASK);
         }
 
-        if (group->has_set_eth_src) {
+        if (group->set_eth_src) {
             if (!set) {
                 set = true;
                 monitor_printf(mon, " set");
@@ -2181,7 +1700,7 @@ void hmp_rocker_of_dpa_groups(Monitor *mon, const QDict *qdict)
             monitor_printf(mon, " src %s", group->set_eth_src);
         }
 
-        if (group->has_set_eth_dst) {
+        if (group->set_eth_dst) {
             if (!set) {
                 monitor_printf(mon, " set");
             }
@@ -2589,7 +2108,7 @@ void hmp_virtio_status(Monitor *mon, const QDict *qdict)
 
     monitor_printf(mon, "%s:\n", path);
     monitor_printf(mon, "  device_name:             %s %s\n",
-                   s->name, s->has_vhost_dev ? "(vhost)" : "");
+                   s->name, s->vhost_dev ? "(vhost)" : "");
     monitor_printf(mon, "  device_id:               %d\n", s->device_id);
     monitor_printf(mon, "  vhost_started:           %s\n",
                    s->vhost_started ? "true" : "false");
@@ -2625,7 +2144,7 @@ void hmp_virtio_status(Monitor *mon, const QDict *qdict)
     monitor_printf(mon, "  Backend features:\n");
     hmp_virtio_dump_features(mon, s->backend_features);
 
-    if (s->has_vhost_dev) {
+    if (s->vhost_dev) {
         monitor_printf(mon, "  VHost:\n");
         monitor_printf(mon, "    nvqs:           %d\n",
                        s->vhost_dev->nvqs);

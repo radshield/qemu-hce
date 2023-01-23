@@ -27,6 +27,7 @@
 #include <libssh/libssh.h>
 #include <libssh/sftp.h>
 
+#include "block/block-io.h"
 #include "block/block_int.h"
 #include "block/qdict.h"
 #include "qapi/error.h"
@@ -643,7 +644,7 @@ static int connect_to_ssh(BDRVSSHState *s, BlockdevOptionsSsh *opts,
     unsigned int port = 0;
     int new_sock = -1;
 
-    if (opts->has_user) {
+    if (opts->user) {
         s->user = g_strdup(opts->user);
     } else {
         s->user = g_strdup(g_get_user_name());

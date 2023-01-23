@@ -22,7 +22,7 @@
 #define QIO_CHANNEL_H
 
 #include "qom/object.h"
-#include "qemu/coroutine.h"
+#include "qemu/coroutine-core.h"
 #include "block/aio.h"
 
 #define TYPE_QIO_CHANNEL "qio-channel"
@@ -350,7 +350,7 @@ int qio_channel_readv_all(QIOChannel *ioc,
 int qio_channel_writev_all(QIOChannel *ioc,
                            const struct iovec *iov,
                            size_t niov,
-                           Error **erp);
+                           Error **errp);
 
 /**
  * qio_channel_readv:

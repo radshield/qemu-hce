@@ -157,6 +157,22 @@ extern "C" {
 
 #include "qemu/typedefs.h"
 
+/**
+ * Mark a function that executes in coroutine context
+ *
+ * Functions that execute in coroutine context cannot be called directly from
+ * normal functions.  In the future it would be nice to enable compiler or
+ * static checker support for catching such errors.  This annotation might make
+ * it possible and in the meantime it serves as documentation.
+ *
+ * For example:
+ *
+ *   static void coroutine_fn foo(void) {
+ *       ....
+ *   }
+ */
+#define coroutine_fn
+
 /*
  * For mingw, as of v6.0.0, the function implementing the assert macro is
  * not marked as noreturn, so the compiler cannot delete code following an
@@ -251,7 +267,13 @@ void QEMU_ERROR("code path is reachable")
 #define ESHUTDOWN 4099
 #endif
 
-#define TFR(expr) do { if ((expr) != -1) break; } while (errno == EINTR)
+#define RETRY_ON_EINTR(expr) \
+    (__extension__                                          \
+        ({ typeof(expr) __result;                               \
+           do {                                             \
+                __result = (expr);         \
+           } while (__result == -1 && errno == EINTR);     \
+           __result; }))
 
 /* time_t may be either 32 or 64 bits depending on the host OS, and
  * can be either signed or unsigned, so we can't just hardcode a
@@ -419,11 +441,6 @@ void qemu_anon_ram_free(void *ptr, size_t size);
     || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__DragonFly__) \
     || defined(__GLIBC__) || defined(__APPLE__)
 #define HAVE_CHARDEV_SERIAL 1
-#endif
-
-#if defined(__linux__) || defined(__FreeBSD__) ||               \
-    defined(__FreeBSD_kernel__) || defined(__DragonFly__)
-#define HAVE_CHARDEV_PARPORT 1
 #endif
 
 #if defined(__HAIKU__)

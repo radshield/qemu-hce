@@ -27,6 +27,7 @@
 #include "qapi/error.h"
 #include "qemu/cutils.h"
 #include "qemu/config-file.h"
+#include "block/block-io.h"
 #include "block/block_int.h"
 #include "block/qdict.h"
 #include "qemu/module.h"
@@ -297,9 +298,7 @@ static int read_config(BDRVBlkdebugState *s, const char *filename,
         }
     }
 
-    qemu_config_parse_qdict(options, config_groups, &local_err);
-    if (local_err) {
-        error_propagate(errp, local_err);
+    if (!qemu_config_parse_qdict(options, config_groups, errp)) {
         ret = -EINVAL;
         goto fail;
     }

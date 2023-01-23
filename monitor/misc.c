@@ -25,30 +25,23 @@
 #include "qemu/osdep.h"
 #include "monitor-internal.h"
 #include "monitor/qdev.h"
-#include "hw/usb.h"
 #include "hw/pci/pci.h"
 #include "sysemu/watchdog.h"
-#include "hw/loader.h"
 #include "exec/gdbstub.h"
 #include "net/net.h"
 #include "net/slirp.h"
 #include "ui/qemu-spice.h"
 #include "qemu/config-file.h"
 #include "qemu/ctype.h"
-#include "ui/console.h"
-#include "ui/input.h"
 #include "audio/audio.h"
 #include "disas/disas.h"
-#include "sysemu/balloon.h"
 #include "qemu/timer.h"
 #include "qemu/log.h"
 #include "sysemu/hw_accel.h"
 #include "sysemu/runstate.h"
 #include "authz/list.h"
 #include "qapi/util.h"
-#include "sysemu/blockdev.h"
 #include "sysemu/sysemu.h"
-#include "sysemu/tpm.h"
 #include "sysemu/device_tree.h"
 #include "qapi/qmp/qdict.h"
 #include "qapi/qmp/qerror.h"
@@ -77,7 +70,6 @@
 #include "qapi/qapi-init-commands.h"
 #include "qapi/error.h"
 #include "qapi/qmp-event.h"
-#include "sysemu/cpus.h"
 #include "qemu/cutils.h"
 
 #include "plugins/plugin.h"
@@ -405,7 +397,7 @@ static void hmp_info_trace_events(Monitor *mon, const QDict *qdict)
 void qmp_client_migrate_info(const char *protocol, const char *hostname,
                              bool has_port, int64_t port,
                              bool has_tls_port, int64_t tls_port,
-                             bool has_cert_subject, const char *cert_subject,
+                             const char *cert_subject,
                              Error **errp)
 {
     if (strcmp(protocol, "spice") == 0) {
@@ -579,7 +571,7 @@ static void memory_dump(Monitor *mon, int count, int format, int wsize,
 
     while (len > 0) {
         if (is_physical) {
-            monitor_printf(mon, TARGET_FMT_plx ":", addr);
+            monitor_printf(mon, HWADDR_FMT_plx ":", addr);
         } else {
             monitor_printf(mon, TARGET_FMT_lx ":", (target_ulong)addr);
         }
@@ -838,49 +830,6 @@ static void hmp_sum(Monitor *mon, const QDict *qdict)
     monitor_printf(mon, "%05d\n", sum);
 }
 
-static int mouse_button_state;
-
-static void hmp_mouse_move(Monitor *mon, const QDict *qdict)
-{
-    int dx, dy, dz, button;
-    const char *dx_str = qdict_get_str(qdict, "dx_str");
-    const char *dy_str = qdict_get_str(qdict, "dy_str");
-    const char *dz_str = qdict_get_try_str(qdict, "dz_str");
-
-    dx = strtol(dx_str, NULL, 0);
-    dy = strtol(dy_str, NULL, 0);
-    qemu_input_queue_rel(NULL, INPUT_AXIS_X, dx);
-    qemu_input_queue_rel(NULL, INPUT_AXIS_Y, dy);
-
-    if (dz_str) {
-        dz = strtol(dz_str, NULL, 0);
-        if (dz != 0) {
-            button = (dz > 0) ? INPUT_BUTTON_WHEEL_UP : INPUT_BUTTON_WHEEL_DOWN;
-            qemu_input_queue_btn(NULL, button, true);
-            qemu_input_event_sync();
-            qemu_input_queue_btn(NULL, button, false);
-        }
-    }
-    qemu_input_event_sync();
-}
-
-static void hmp_mouse_button(Monitor *mon, const QDict *qdict)
-{
-    static uint32_t bmap[INPUT_BUTTON__MAX] = {
-        [INPUT_BUTTON_LEFT]       = MOUSE_EVENT_LBUTTON,
-        [INPUT_BUTTON_MIDDLE]     = MOUSE_EVENT_MBUTTON,
-        [INPUT_BUTTON_RIGHT]      = MOUSE_EVENT_RBUTTON,
-    };
-    int button_state = qdict_get_int(qdict, "button_state");
-
-    if (mouse_button_state == button_state) {
-        return;
-    }
-    qemu_input_update_buttons(NULL, bmap, mouse_button_state, button_state);
-    qemu_input_event_sync();
-    mouse_button_state = button_state;
-}
-
 static void hmp_ioport_read(Monitor *mon, const QDict *qdict)
 {
     int size = qdict_get_int(qdict, "size");
@@ -1093,6 +1042,7 @@ int monitor_get_fd(Monitor *mon, const char *fdname, Error **errp)
         }
 
         fd = monfd->fd;
+        assert(fd >= 0);
 
         /* caller takes ownership of fd */
         QLIST_REMOVE(monfd, next);
@@ -1139,7 +1089,7 @@ void monitor_fdsets_cleanup(void)
     }
 }
 
-AddfdInfo *qmp_add_fd(bool has_fdset_id, int64_t fdset_id, bool has_opaque,
+AddfdInfo *qmp_add_fd(bool has_fdset_id, int64_t fdset_id,
                       const char *opaque, Error **errp)
 {
     int fd;
@@ -1152,8 +1102,7 @@ AddfdInfo *qmp_add_fd(bool has_fdset_id, int64_t fdset_id, bool has_opaque,
         goto error;
     }
 
-    fdinfo = monitor_fdset_add_fd(fd, has_fdset_id, fdset_id,
-                                  has_opaque, opaque, errp);
+    fdinfo = monitor_fdset_add_fd(fd, has_fdset_id, fdset_id, opaque, errp);
     if (fdinfo) {
         return fdinfo;
     }
@@ -1221,12 +1170,7 @@ FdsetInfoList *qmp_query_fdsets(Error **errp)
 
             fdsetfd_info = g_malloc0(sizeof(*fdsetfd_info));
             fdsetfd_info->fd = mon_fdset_fd->fd;
-            if (mon_fdset_fd->opaque) {
-                fdsetfd_info->has_opaque = true;
-                fdsetfd_info->opaque = g_strdup(mon_fdset_fd->opaque);
-            } else {
-                fdsetfd_info->has_opaque = false;
-            }
+            fdsetfd_info->opaque = g_strdup(mon_fdset_fd->opaque);
 
             QAPI_LIST_PREPEND(fdset_info->fds, fdsetfd_info);
         }
@@ -1249,8 +1193,7 @@ static void qmp_plugin_command(Monitor *mon, const QDict *qdict)
 }
 
 AddfdInfo *monitor_fdset_add_fd(int fd, bool has_fdset_id, int64_t fdset_id,
-                                bool has_opaque, const char *opaque,
-                                Error **errp)
+                                const char *opaque, Error **errp)
 {
     MonFdset *mon_fdset = NULL;
     MonFdsetFd *mon_fdset_fd;
@@ -1318,9 +1261,7 @@ AddfdInfo *monitor_fdset_add_fd(int fd, bool has_fdset_id, int64_t fdset_id,
     mon_fdset_fd = g_malloc0(sizeof(*mon_fdset_fd));
     mon_fdset_fd->fd = fd;
     mon_fdset_fd->removed = false;
-    if (has_opaque) {
-        mon_fdset_fd->opaque = g_strdup(opaque);
-    }
+    mon_fdset_fd->opaque = g_strdup(opaque);
     QLIST_INSERT_HEAD(&mon_fdset->fds, mon_fdset_fd, next);
 
     fdinfo = g_malloc0(sizeof(*fdinfo));
@@ -1421,22 +1362,15 @@ void monitor_fdset_dup_fd_remove(int dup_fd)
 int monitor_fd_param(Monitor *mon, const char *fdname, Error **errp)
 {
     int fd;
-    Error *local_err = NULL;
 
     if (!qemu_isdigit(fdname[0]) && mon) {
-        fd = monitor_get_fd(mon, fdname, &local_err);
+        fd = monitor_get_fd(mon, fdname, errp);
     } else {
         fd = qemu_parse_fd(fdname);
-        if (fd == -1) {
-            error_setg(&local_err, "Invalid file descriptor number '%s'",
+        if (fd < 0) {
+            error_setg(errp, "Invalid file descriptor number '%s'",
                        fdname);
         }
-    }
-    if (local_err) {
-        error_propagate(errp, local_err);
-        assert(fd == -1);
-    } else {
-        assert(fd != -1);
     }
 
     return fd;
@@ -1737,28 +1671,6 @@ void object_del_completion(ReadLineState *rs, int nb_args, const char *str)
         list = list->next;
     }
     qapi_free_ObjectPropertyInfoList(start);
-}
-
-void sendkey_completion(ReadLineState *rs, int nb_args, const char *str)
-{
-    int i;
-    char *sep;
-    size_t len;
-
-    if (nb_args != 2) {
-        return;
-    }
-    sep = strrchr(str, '-');
-    if (sep) {
-        str = sep + 1;
-    }
-    len = strlen(str);
-    readline_set_completion_index(rs, len);
-    for (i = 0; i < Q_KEY_CODE__MAX; i++) {
-        if (!strncmp(str, QKeyCode_str(i), len)) {
-            readline_add_completion(rs, QKeyCode_str(i));
-        }
-    }
 }
 
 void set_link_completion(ReadLineState *rs, int nb_args, const char *str)

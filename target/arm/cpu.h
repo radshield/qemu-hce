@@ -309,6 +309,7 @@ typedef struct CPUArchState {
             };
             uint64_t sctlr_el[4];
         };
+        uint64_t vsctlr; /* Virtualization System control register. */
         uint64_t cpacr_el1; /* Architectural feature access control register */
         uint64_t cptr_el[4];  /* ARMv8 feature trap registers */
         uint32_t c1_xscaleauxcr; /* XScale auxiliary control register.  */
@@ -478,7 +479,7 @@ typedef struct CPUArchState {
         };
         uint64_t c14_cntfrq; /* Counter Frequency register */
         uint64_t c14_cntkctl; /* Timer Control register */
-        uint32_t cnthctl_el2; /* Counter/Timer Hyp Control register */
+        uint64_t cnthctl_el2; /* Counter/Timer Hyp Control register */
         uint64_t cntvoff_el2; /* Counter Virtual Offset register */
         ARMGenericTimer c14_timer[NUM_GTIMERS];
         uint32_t c15_cpar; /* XScale Coprocessor Access Register */
@@ -494,6 +495,7 @@ typedef struct CPUArchState {
         uint64_t dbgbcr[16]; /* breakpoint control registers */
         uint64_t dbgwvr[16]; /* watchpoint value registers */
         uint64_t dbgwcr[16]; /* watchpoint control registers */
+        uint64_t dbgclaim;   /* DBGCLAIM bits */
         uint64_t mdscr_el1;
         uint64_t oslsr_el1; /* OS Lock Status */
         uint64_t osdlr_el1; /* OS DoubleLock status */
@@ -745,8 +747,11 @@ typedef struct CPUArchState {
          */
         uint32_t *rbar[M_REG_NUM_BANKS];
         uint32_t *rlar[M_REG_NUM_BANKS];
+        uint32_t *hprbar;
+        uint32_t *hprlar;
         uint32_t mair0[M_REG_NUM_BANKS];
         uint32_t mair1[M_REG_NUM_BANKS];
+        uint32_t hprselr;
     } pmsav8;
 
     /* v8M SAU */
@@ -906,6 +911,8 @@ struct ArchCPU {
     bool has_mpu;
     /* PMSAv7 MPU number of supported regions */
     uint32_t pmsav7_dregion;
+    /* PMSAv8 MPU number of supported hyp regions */
+    uint32_t pmsav8r_hdregion;
     /* v8M SAU number of supported regions */
     uint32_t sau_sregion;
 
@@ -1117,7 +1124,7 @@ int aarch64_cpu_gdb_write_register(CPUState *cpu, uint8_t *buf, int reg);
 void aarch64_sve_narrow_vq(CPUARMState *env, unsigned vq);
 void aarch64_sve_change_el(CPUARMState *env, int old_el,
                            int new_el, bool el0_a64);
-void arm_reset_sve_state(CPUARMState *env);
+void aarch64_set_svcr(CPUARMState *env, uint64_t new, uint64_t mask);
 
 /*
  * SVE registers are encoded in KVM's memory in an endianness-invariant format.
@@ -3757,6 +3764,16 @@ static inline bool isar_feature_aa32_tts2uxn(const ARMISARegisters *id)
     return FIELD_EX32(id->id_mmfr4, ID_MMFR4, XNX) != 0;
 }
 
+static inline bool isar_feature_aa32_half_evt(const ARMISARegisters *id)
+{
+    return FIELD_EX32(id->id_mmfr4, ID_MMFR4, EVT) >= 1;
+}
+
+static inline bool isar_feature_aa32_evt(const ARMISARegisters *id)
+{
+    return FIELD_EX32(id->id_mmfr4, ID_MMFR4, EVT) >= 2;
+}
+
 static inline bool isar_feature_aa32_dit(const ARMISARegisters *id)
 {
     return FIELD_EX32(id->id_pfr0, ID_PFR0, DIT) != 0;
@@ -4027,6 +4044,16 @@ static inline bool isar_feature_aa64_fwb(const ARMISARegisters *id)
 static inline bool isar_feature_aa64_ids(const ARMISARegisters *id)
 {
     return FIELD_EX64(id->id_aa64mmfr2, ID_AA64MMFR2, IDS) != 0;
+}
+
+static inline bool isar_feature_aa64_half_evt(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64mmfr2, ID_AA64MMFR2, EVT) >= 1;
+}
+
+static inline bool isar_feature_aa64_evt(const ARMISARegisters *id)
+{
+    return FIELD_EX64(id->id_aa64mmfr2, ID_AA64MMFR2, EVT) >= 2;
 }
 
 static inline bool isar_feature_aa64_bti(const ARMISARegisters *id)
@@ -4311,6 +4338,16 @@ static inline bool isar_feature_any_debugv8p2(const ARMISARegisters *id)
 static inline bool isar_feature_any_ras(const ARMISARegisters *id)
 {
     return isar_feature_aa64_ras(id) || isar_feature_aa32_ras(id);
+}
+
+static inline bool isar_feature_any_half_evt(const ARMISARegisters *id)
+{
+    return isar_feature_aa64_half_evt(id) || isar_feature_aa32_half_evt(id);
+}
+
+static inline bool isar_feature_any_evt(const ARMISARegisters *id)
+{
+    return isar_feature_aa64_evt(id) || isar_feature_aa32_evt(id);
 }
 
 /*
