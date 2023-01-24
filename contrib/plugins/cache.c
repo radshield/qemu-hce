@@ -767,55 +767,67 @@ int random_integer(int lower, int upper)
 char *plugin_monitor_cmd(const char *plugin_name,
                          const char *command)
 {
-    if (strcmp(plugin_name, "cache") == 0) {
-      if (strcmp(command, "lock_l1_cache") == 0) {
-        for (int i = 0; i < cores; i++)
-          g_mutex_lock(&l1_dcache_locks[i]);
-        return "l1 locked";
-      } else if (strcmp(command, "lock_l2_cache") == 0) {
-        for (int i = 0; i < cores; i++)
-          g_mutex_lock(&l2_ucache_locks[i]);
-        return "l2 locked";
-      } else if (strcmp(command, "unlock_l1_cache") == 0) {
-        for (int i = 0; i < cores; i++)
-          g_mutex_unlock(&l1_dcache_locks[i]);
-        return "l1 unlocked";
-      } else if (strcmp(command, "unlock_l2_cache") == 0) {
-        for (int i = 0; i < cores; i++)
-          g_mutex_unlock(&l2_ucache_locks[i]);
-        return "l2 unlocked";
-      } else if (strcmp(command, "get_l1_cache_addr") == 0) {
-        int cache_num = random_integer(0, cores);
-        char ret[32];
-        
-        for (int i = 0; i < l1_dcaches[cache_num]->num_sets; i++) {
-          int block_sel = get_valid_block(l1_dcaches[cache_num], i);
-          if (block_sel != -1) {
-            sprintf(ret, "%lx", l1_dcaches[cache_num]->sets[i].blocks[block_sel].tag);
-            return ret;
-          }
-        }
+  if (strcmp(plugin_name, "cache") == 0) {
+    char* ret = malloc(32);
 
-        return "no valid block found";
-      } else if (strcmp(command, "get_l2_cache_addr") == 0) {
+    if (strcmp(command, "lock_l1_cache") == 0) {
+      for (int i = 0; i < cores; i++)
+        g_mutex_lock(&l1_dcache_locks[i]);
+      ret = "l1 locked";
+    } else if (strcmp(command, "lock_l2_cache") == 0) {
+      for (int i = 0; i < cores; i++)
+        g_mutex_lock(&l2_ucache_locks[i]);
+      ret = "l2 locked";
+    } else if (strcmp(command, "unlock_l1_cache") == 0) {
+      for (int i = 0; i < cores; i++)
+        g_mutex_unlock(&l1_dcache_locks[i]);
+      ret = "l1 unlocked";
+    } else if (strcmp(command, "unlock_l2_cache") == 0) {
+      for (int i = 0; i < cores; i++)
+        g_mutex_unlock(&l2_ucache_locks[i]);
+      ret = "l2 unlocked";
+    } else if (strcmp(command, "get_l1_addr") == 0) {
+      int cache_num = random_integer(0, cores);
+      
+      for (int i = 0; i < l1_dcaches[cache_num]->num_sets; i++) {
+        int block_sel = get_valid_block(l1_dcaches[cache_num], i);
+        if (block_sel != -1) {
+          uint64_t tag_portion = l1_dcaches[cache_num]->sets[i].blocks[block_sel].tag & l1_dcaches[cache_num]->tag_mask;
+          uint64_t set_portion = (i << l1_dcaches[cache_num]->blksize_shift) & l1_dcaches[cache_num]->set_mask;
+
+          sprintf(ret, "%lx", tag_portion | set_portion);
+          return ret;
+        }
+      }
+
+      ret = "no valid block found";
+    } else if (strcmp(command, "get_l2_addr") == 0) {
+      if (!use_l2) {
+        ret = "not using L2 cache";
+      } else {
         int cache_num = random_integer(0, cores);
-        char ret[32];
 
         for (int i = 0; i < l2_ucaches[cache_num]->num_sets; i++) {
           int block_sel = get_valid_block(l2_ucaches[cache_num], i);
           if (block_sel != -1) {
-            sprintf(ret, "%lx", l2_ucaches[cache_num]->sets[i].blocks[block_sel].tag);
+            uint64_t tag_portion = l2_ucaches[cache_num]->sets[i].blocks[block_sel].tag & l2_ucaches[cache_num]->tag_mask;
+            uint64_t set_portion = (i << l2_ucaches[cache_num]->blksize_shift) & l2_ucaches[cache_num]->set_mask;
+
+            sprintf(ret, "%lx", tag_portion | set_portion);
             return ret;
           }
         }
 
-        return "no valid block found";
-      } else {
-        return "unknown command";
+        ret = "no valid block found";
       }
     } else {
-        return NULL;
+      ret = "unknown command";
     }
+
+    return ret;
+  } else {
+    return NULL;
+  }
 }
 
 QEMU_PLUGIN_EXPORT
