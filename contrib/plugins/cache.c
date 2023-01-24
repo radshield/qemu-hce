@@ -767,26 +767,26 @@ int random_integer(int lower, int upper)
 char *plugin_monitor_cmd(const char *plugin_name,
                          const char *command)
 {
-  if (strcmp(plugin_name, "cache") == 0) {
+  if (g_strcmp0(plugin_name, "cache") == 0) {
     char* ret = malloc(32);
 
-    if (strcmp(command, "lock_l1_cache") == 0) {
+    if (g_strcmp0(command, "lock_l1_cache") == 0) {
       for (int i = 0; i < cores; i++)
         g_mutex_lock(&l1_dcache_locks[i]);
       ret = "l1 locked";
-    } else if (strcmp(command, "lock_l2_cache") == 0) {
+    } else if (g_strcmp0(command, "lock_l2_cache") == 0) {
       for (int i = 0; i < cores; i++)
         g_mutex_lock(&l2_ucache_locks[i]);
       ret = "l2 locked";
-    } else if (strcmp(command, "unlock_l1_cache") == 0) {
+    } else if (g_strcmp0(command, "unlock_l1_cache") == 0) {
       for (int i = 0; i < cores; i++)
         g_mutex_unlock(&l1_dcache_locks[i]);
       ret = "l1 unlocked";
-    } else if (strcmp(command, "unlock_l2_cache") == 0) {
+    } else if (g_strcmp0(command, "unlock_l2_cache") == 0) {
       for (int i = 0; i < cores; i++)
         g_mutex_unlock(&l2_ucache_locks[i]);
       ret = "l2 unlocked";
-    } else if (strcmp(command, "get_l1_addr") == 0) {
+    } else if (g_strcmp0(command, "get_l1_addr") == 0) {
       int cache_num = random_integer(0, cores);
       
       for (int i = 0; i < l1_dcaches[cache_num]->num_sets; i++) {
@@ -801,7 +801,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
       }
 
       ret = "no valid block found";
-    } else if (strcmp(command, "get_l2_addr") == 0) {
+    } else if (g_strcmp0(command, "get_l2_addr") == 0) {
       if (!use_l2) {
         ret = "not using L2 cache";
       } else {
@@ -820,6 +820,25 @@ char *plugin_monitor_cmd(const char *plugin_name,
 
         ret = "no valid block found";
       }
+    } else if (strncmp(command, "in_cache ", 9) == 0) {
+      char *save_ptr, *addr_to_test;
+
+      strtok_r(command, " ", &save_ptr);
+      addr_to_test = strtok_r(NULL, " ", &save_ptr);
+
+      uint64_t addr = strtoll(addr_to_test, NULL, 10);
+
+      for (int i = 0; i < cores; i++) {
+        if (in_cache(l1_dcaches[i], addr)) {
+          ret = "true";
+          return ret;
+        }
+        if (use_l2 && in_cache(l2_ucaches[i], addr)) {
+          ret = "true";
+          return ret;
+        }
+      }
+      ret = "false";
     } else {
       ret = "unknown command";
     }
