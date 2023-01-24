@@ -1186,7 +1186,6 @@ static void qmp_plugin_command(Monitor *mon, const QDict *qdict)
     const char *target_plugin = qdict_get_str(qdict, "plugin");
     const char *plugin_cmd = qdict_get_str(qdict, "command");
 
-    monitor_printf(mon, "target_plugin: '%s', plugin_cmd: '%s'\n", target_plugin, plugin_cmd);
     char *output = qemu_plugin_monitor_cmd_cb(target_plugin, plugin_cmd);
     if (output != NULL)
         monitor_printf(mon, "%s\n", output);
