@@ -876,10 +876,12 @@ char *plugin_monitor_cmd(const char *plugin_name,
 
                         // Make sure it's not in the L2 cache either
                         char flag = 0;
-                        for (int itt = 0; itt < cores; itt++) {
-                            if (in_cache(l2_ucaches[itt], blk_addr)) {
-                                flag = 1;
-                                break;
+                        if (use_l2) {
+                            for (int itt = 0; itt < cores; itt++) {
+                                if (in_cache(l2_ucaches[itt], blk_addr)) {
+                                    flag = 1;
+                                    break;
+                                }
                             }
                         }
 
