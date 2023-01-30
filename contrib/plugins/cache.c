@@ -129,7 +129,7 @@ static int pow_of_two(int num)
 
 static int *random_indices(int max)
 {
-    int* ret = malloc(max);
+    int* ret = malloc(max * sizeof(int));
     for (int i = 0; i < max; i++)
         ret[i] = i;
 
@@ -322,13 +322,17 @@ static Cache **caches_init(int blksize, int assoc, int cachesize)
 static int get_valid_block(Cache *cache, uint64_t set)
 {
     int i;
+    int* cache_order = random_indices(cache->assoc);
 
     for (i = 0; i < cache->assoc; i++) {
-        if (cache->sets[set].blocks[i].valid) {
-            return i;
+        if (cache->sets[set].blocks[cache_order[i]].valid) {
+            int ret = cache_order[i];
+            free(cache_order);
+            return ret;
         }
     }
 
+    free(cache_order);
     return -1;
 }
 
@@ -800,7 +804,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
             int *cache_order = random_indices(cores);
 
             for (int it = 0; it < cores; it++) {
-                c_id = cache_order[it];
+                int c_id = cache_order[it];
                 int *set_order = random_indices(l1_dcaches[c_id]->num_sets);
                 for (int i = 0; i < l1_dcaches[c_id]->num_sets; i++) {
                     int s_id = set_order[i];
@@ -825,7 +829,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                 int *cache_order = random_indices(cores);
 
                 for (int it = 0; it < cores; it++) {
-                    c_id = cache_order[it];
+                    int c_id = cache_order[it];
                     int *set_order = random_indices(l2_ucaches[c_id]->num_sets);
                     for (int i = 0; i < l2_ucaches[c_id]->num_sets; i++) {
                         int s_id = set_order[i];
