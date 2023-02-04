@@ -784,28 +784,13 @@ char *plugin_monitor_cmd(const char *plugin_name,
     if (g_strcmp0(plugin_name, "cache") == 0) {
         char* ret = malloc(32);
 
-        if (g_strcmp0(command, "lock_l1_cache") == 0) {
-            for (int i = 0; i < cores; i++)
-                g_mutex_lock(&l1_dcache_locks[i]);
-            ret = "l1 locked";
-        } else if (g_strcmp0(command, "lock_l2_cache") == 0) {
-            for (int i = 0; i < cores; i++)
-                g_mutex_lock(&l2_ucache_locks[i]);
-            ret = "l2 locked";
-            } else if (g_strcmp0(command, "unlock_l1_cache") == 0) {
-            for (int i = 0; i < cores; i++)
-                g_mutex_unlock(&l1_dcache_locks[i]);
-            ret = "l1 unlocked";
-        } else if (g_strcmp0(command, "unlock_l2_cache") == 0) {
-            for (int i = 0; i < cores; i++)
-                g_mutex_unlock(&l2_ucache_locks[i]);
-            ret = "l2 unlocked";
-        } else if (g_strcmp0(command, "get_l1_addr") == 0) {
+        if (g_strcmp0(command, "get_l1_addr") == 0) {
             size_t *cache_order = random_indices(cores);
 
             // Loop through all cores' caches
             for (int it = 0; it < cores; it++) {
                 int c_id = cache_order[it];
+                g_mutex_lock(&l1_dcache_locks[c_id]);
                 size_t *set_order = random_indices(l1_dcaches[c_id]->num_sets);
 
                 // Check each set for valid blocks
@@ -822,6 +807,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                     }
                 }
                 free(set_order);
+                g_mutex_lock(&l1_dcache_locks[c_id]);
             }
 
             free(cache_order);
@@ -835,6 +821,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                 // Loop through all cores' caches
                 for (int it = 0; it < cores; it++) {
                     int c_id = cache_order[it];
+                    g_mutex_lock(&l2_ucache_locks[c_id]);
                     size_t *set_order = random_indices(l2_ucaches[c_id]->num_sets);
 
                     // Check each set for valid blocks
@@ -851,6 +838,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                         }
                     }
                     free(set_order);
+                    g_mutex_lock(&l2_ucache_locks[c_id]);
                 }
 
                 free(cache_order);
@@ -862,6 +850,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
             // Loop through all cores' caches
             for (int it = 0; it < cores; it++) {
                 int c_id = cache_order[it];
+                g_mutex_lock(&l1_dcache_locks[c_id]);
                 size_t *set_order = random_indices(l1_dcaches[c_id]->num_sets);
 
                 // Check each set for invalid blocks
@@ -878,10 +867,13 @@ char *plugin_monitor_cmd(const char *plugin_name,
                         char flag = 0;
                         if (use_l2) {
                             for (int itt = 0; itt < cores; itt++) {
+                                g_mutex_lock(&l2_ucache_locks[itt]);
                                 if (in_cache(l2_ucaches[itt], blk_addr)) {
                                     flag = 1;
+                                    g_mutex_unlock(&l2_ucache_locks[itt]);
                                     break;
                                 }
+                                g_mutex_unlock(&l2_ucache_locks[itt]);
                             }
                         }
 
@@ -893,6 +885,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                     }
                 }
                 free(set_order);
+                g_mutex_unlock(&l1_dcache_locks[c_id]);
             }
 
             free(cache_order);
