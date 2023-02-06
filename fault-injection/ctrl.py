@@ -212,8 +212,21 @@ def mtree():
     return {name: FlatView.parse(body) for name, body in views.items()}
 
 
-def sample_address():
-    return mtree()["memory"].random_address()
+def sample_address(location=""):
+    line = ""
+    if location == "memory":
+        line = qemu_hmp("plugin_run cache get_mem_addr")
+    elif location == "l1":
+        line = qemu_hmp("plugin_run cache get_l1_addr")
+    elif location == "l2":
+        line = qemu_hmp("plugin_run cache get_l2_addr")
+    else:
+        return mtree()["memory"].random_address()
+
+    try:
+        return int(line, 16)
+    except ValueError:
+        return -1
 
 
 def sample_geo(r):
@@ -411,11 +424,12 @@ def inject(args):
     """Inject a bitflip at an address."""
 
     args = args.strip().split(" ")
-    if len(args) > 3:
-        print("usage: inject [<address>] [<bytewidth>] [<bit>]")
+    if len(args) > 4:
+        print("usage: inject [<address>] [<bytewidth>] [<bit>] [<location>]")
         print("if no address specified, will be randomly selected, and bytewidth will default to 1")
         print("otherwise, bytewidth defaults to 4 bytes")
         print("bit specifies the bit index within the integer to flip")
+        print("location specifies which memory type to flip")
         return
 
     if args and args[0]:
@@ -425,7 +439,7 @@ def inject(args):
             print("invalid bytewidth or address")
             return
     else:
-        address = sample_address()
+        address = sample_address(args[3] if args[3:] else "")
         bytewidth = 1
 
     bit = (int(args[2]) if args[2:] else None)
@@ -530,12 +544,13 @@ def campaign(args):
     """Repeatedly inject bitflips into system and then fast-forwards."""
 
     args = args.strip().split(" ")
-    if len(args) < 2 or len(args) > 4:
-        print("usage: campaign <iterations> <mtbf> [<address>] [<bytewidth>]")
+    if len(args) < 2 or len(args) > 5:
+        print("usage: campaign <iterations> <mtbf> [<address>] [<bytewidth>] [<location>]")
         print("bytewidth defaults to 4 bytes if address specified")
         print("if <address> starts with reg, then register injections are performed instead")
         print("specify address as reg:X to specify register X for the register injection")
         print("if <address> is 'restart' or 'restart-later', then an undefined instruction is injected")
+        print("location specifies which memory type to flip")
         return
 
     iterations = int(args[0])
@@ -578,7 +593,7 @@ def campaign(args):
             inject_reg_internal(address)
         else:
             if rand_addr:
-                address = sample_address()
+                address = sample_address(args[4] if args[4:] else "")
             inject_bitflip(address, bytewidth)
 
         ns_to_failure = sample_geo(mtbf_to_rate(mtbf))
@@ -593,7 +608,7 @@ def continuous(args):
     if len(args) != 4 or args[3] not in ("mem", "reg", "restart", "restart-later"):
         print("usage: continuous <iterations> <min> <max> <mode>")
         print("the delay between successive injections is uniformly selected from the range [min, max]")
-        print("mode must be mem, reg, restart, or restart-later")
+        print("mode must be mem, reg, all, restart, or restart-later")
         return
 
     iterations = int(args[0])
@@ -617,3 +632,11 @@ def continuous(args):
             inject_reg_internal(None)
         elif mode == "mem":
             inject_bitflip(sample_address(), 1)
+        elif mode == "all":
+            selected = random.randint(0, 10)
+            if selected == 0:
+                inject_reg_internal(None)
+            elif selected >= 1 and selected <=3:
+                inject_bitflip(sample_address("l1"), 1)
+            else:
+                inject_bitflip(sample_address("memory"), 1)
