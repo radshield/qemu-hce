@@ -605,7 +605,7 @@ def continuous(args):
     """Repeatedly inject bitflips into system and then fast-forward. Delays are uniformly distributed."""
 
     args = args.strip().split(" ")
-    if len(args) != 4 or args[3] not in ("mem", "reg", "restart", "restart-later"):
+    if len(args) != 4 or args[3] not in ("mem", "reg", "all", "restart", "restart-later"):
         print("usage: continuous <iterations> <min> <max> <mode>")
         print("the delay between successive injections is uniformly selected from the range [min, max]")
         print("mode must be mem, reg, all, restart, or restart-later")
