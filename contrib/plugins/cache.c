@@ -802,7 +802,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                         uint64_t tag_portion = l1_dcaches[c_id]->sets[s_id].blocks[block_sel].tag & l1_dcaches[c_id]->tag_mask;
                         uint64_t set_portion = (s_id << l1_dcaches[c_id]->blksize_shift) & l1_dcaches[c_id]->set_mask;
 
-                        sprintf(ret, "%lx", tag_portion | set_portion);
+                        sprintf(ret, "0x%lx", tag_portion | set_portion);
                         return ret;
                     }
                 }
@@ -833,7 +833,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                             uint64_t tag_portion = l2_ucaches[c_id]->sets[s_id].blocks[block_sel].tag & l2_ucaches[c_id]->tag_mask;
                             uint64_t set_portion = (s_id << l2_ucaches[c_id]->blksize_shift) & l2_ucaches[c_id]->set_mask;
 
-                            sprintf(ret, "%lx", tag_portion | set_portion);
+                            sprintf(ret, "0x%lx", tag_portion | set_portion);
                             return ret;
                         }
                     }
@@ -879,7 +879,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
 
                         // Found block not in L1 or L2
                         if (flag == 0) {
-                            sprintf(ret, "%lx", blk_addr);
+                            sprintf(ret, "0x%lx", blk_addr);
                             return ret;
                         }
                     }
