@@ -97,6 +97,7 @@ void (*metadata_destroy)(Cache *cache);
 
 static int cores;
 static Cache **l1_dcaches, **l1_icaches;
+static uint64_t max_effective_addr;
 
 static bool use_l2;
 static Cache **l2_ucaches;
@@ -140,6 +141,11 @@ static size_t *random_indices(size_t max)
         ret[i] = temp;
     }
     return ret;
+}
+
+static uint64_t random_int(uint64_t lower, uint64_t upper)
+{
+    return (rand() % (upper - lower + 1)) + lower;
 }
 
 /*
@@ -437,6 +443,9 @@ static void vcpu_mem_access(unsigned int vcpu_index, qemu_plugin_meminfo_t info,
 
     effective_addr = hwaddr ? qemu_plugin_hwaddr_phys_addr(hwaddr) : vaddr;
     cache_idx = vcpu_index % cores;
+
+    if (effective_addr > max_effective_addr)
+        max_effective_addr = effective_addr;
 
     g_mutex_lock(&l1_dcache_locks[cache_idx]);
     hit_in_l1 = access_cache(l1_dcaches[cache_idx], effective_addr);
@@ -845,50 +854,31 @@ static char *plugin_monitor_cmd(const char *plugin_name,
                 sprintf(ret, "no valid block found");
             }
         } else if (g_strcmp0(command, "get_mem_addr") == 0) {
-            size_t *cache_order = random_indices(cores);
+            uint64_t test_addr = random_int(0, max_effective_addr);
 
             // Loop through all cores' caches
             for (int it = 0; it < cores; it++) {
-                int c_id = cache_order[it];
-                //g_mutex_lock(&l1_dcache_locks[c_id]);
-                size_t *set_order = random_indices(l1_dcaches[c_id]->num_sets);
+                //g_mutex_lock(&l1_dcache_locks[it]);
 
-                // Check each set for invalid blocks
-                for (int i = 0; i < l1_dcaches[c_id]->num_sets; i++) {
-                    int s_id = set_order[i];
-                    int block_sel = get_invalid_block(l1_dcaches[c_id], s_id);
-                    if (block_sel != -1) {
-                        uint64_t tag_portion = l1_dcaches[c_id]->sets[s_id].blocks[block_sel].tag & l1_dcaches[c_id]->tag_mask;
-                        uint64_t set_portion = (s_id << l1_dcaches[c_id]->blksize_shift) & l1_dcaches[c_id]->set_mask;
-
-                        uint64_t blk_addr = tag_portion | set_portion;
-
-                        // Make sure it's not in the L2 cache either
-                        char flag = 0;
+                // Check if in caches
+                if(!in_cache(l1_dcaches[it], test_addr)) {
+                    for (int i = 0; i < cores; i++) {
+                        //g_mutex_lock(&l2_ucache_locks[i]);
                         if (use_l2) {
-                            for (int itt = 0; itt < cores; itt++) {
-                                //g_mutex_lock(&l2_ucache_locks[itt]);
-                                if (in_cache(l2_ucaches[itt], blk_addr)) {
-                                    flag = 1;
-                                    //g_mutex_unlock(&l2_ucache_locks[itt]);
-                                    break;
-                                }
-                                //g_mutex_unlock(&l2_ucache_locks[itt]);
+                            if (!in_cache(l2_ucaches[i], test_addr)) {
+                                sprintf(ret, "0x%llx", test_addr);
+                                return ret;
                             }
-                        }
-
-                        // Found block not in L1 or L2
-                        if (flag == 0) {
-                            sprintf(ret, "0x%llx", blk_addr);
+                        } else {
+                            sprintf(ret, "0x%llx", test_addr);
                             return ret;
                         }
+                        //g_mutex_lock(&l2_ucache_locks[i]);
                     }
                 }
-                free(set_order);
-                //g_mutex_unlock(&l1_dcache_locks[c_id]);
+                //g_mutex_unlock(&l1_dcache_locks[it]);
             }
 
-            free(cache_order);
             sprintf(ret, "no valid block found");
         } else {
             sprintf(ret, "unknown command");
