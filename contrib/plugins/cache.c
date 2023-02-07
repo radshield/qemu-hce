@@ -128,24 +128,20 @@ static int pow_of_two(int num)
     return ret;
 }
 
-static size_t *random_indices(size_t max)
+static size_t *random_indices(size_t max, size_t step)
 {
-    size_t* ret = malloc(max * sizeof(size_t));
-    for (size_t i = 0; i < max; i++)
+    size_t indices_size = max / step;
+    size_t* ret = malloc(indices_size * sizeof(size_t));
+    for (size_t i = 0; i < max; i += step)
         ret[i] = i;
 
-    for (size_t i = 0; i < max; i++) {
-        size_t j = i + rand() / (RAND_MAX / (max - i) + 1);
+    for (size_t i = 0; i < indices_size; i++) {
+        size_t j = i + rand() / (RAND_MAX / (indices_size - i) + 1);
         size_t temp = ret[j];
         ret[j] = ret[i];
         ret[i] = temp;
     }
     return ret;
-}
-
-static uint64_t random_int(uint64_t lower, uint64_t upper)
-{
-    return (rand() % (upper - lower + 1)) + lower;
 }
 
 /*
@@ -328,7 +324,7 @@ static Cache **caches_init(int blksize, int assoc, int cachesize)
 static int get_valid_block(Cache *cache, uint64_t set)
 {
     int i;
-    size_t* cache_order = random_indices(cache->assoc);
+    size_t* cache_order = random_indices(cache->assoc, 1);
 
     for (i = 0; i < cache->assoc; i++) {
         if (cache->sets[set].blocks[cache_order[i]].valid) {
@@ -794,13 +790,13 @@ static char *plugin_monitor_cmd(const char *plugin_name,
         char* ret = malloc(32);
 
         if (g_strcmp0(command, "get_l1_addr") == 0) {
-            size_t *cache_order = random_indices(cores);
+            size_t *cache_order = random_indices(cores, 1);
 
             // Loop through all cores' caches
             for (int it = 0; it < cores; it++) {
                 int c_id = cache_order[it];
                 //g_mutex_lock(&l1_dcache_locks[c_id]);
-                size_t *set_order = random_indices(l1_dcaches[c_id]->num_sets);
+                size_t *set_order = random_indices(l1_dcaches[c_id]->num_sets, 1);
 
                 // Check each set for valid blocks
                 for (int i = 0; i < l1_dcaches[c_id]->num_sets; i++) {
@@ -825,13 +821,13 @@ static char *plugin_monitor_cmd(const char *plugin_name,
             if (!use_l2) {
                 sprintf(ret, "not using L2 cache");
             } else {
-                size_t *cache_order = random_indices(cores);
+                size_t *cache_order = random_indices(cores, 1);
 
                 // Loop through all cores' caches
                 for (int it = 0; it < cores; it++) {
                     int c_id = cache_order[it];
                     //g_mutex_lock(&l2_ucache_locks[c_id]);
-                    size_t *set_order = random_indices(l2_ucaches[c_id]->num_sets);
+                    size_t *set_order = random_indices(l2_ucaches[c_id]->num_sets, 1);
 
                     // Check each set for valid blocks
                     for (int i = 0; i < l2_ucaches[c_id]->num_sets; i++) {
@@ -854,30 +850,37 @@ static char *plugin_monitor_cmd(const char *plugin_name,
                 sprintf(ret, "no valid block found");
             }
         } else if (g_strcmp0(command, "get_mem_addr") == 0) {
-            uint64_t test_addr = random_int(0, max_effective_addr);
+            size_t *addr_list = random_indices(max_effective_addr, l1_dassoc);
 
-            // Loop through all cores' caches
-            for (int it = 0; it < cores; it++) {
-                //g_mutex_lock(&l1_dcache_locks[it]);
+            for (int addr_it = 0; addr_it < max_effective_addr / l1_dassoc; addr_it++) {
+                size_t test_addr = addr_list[addr_it];
 
-                // Check if in caches
-                if(!in_cache(l1_dcaches[it], test_addr)) {
-                    for (int i = 0; i < cores; i++) {
-                        //g_mutex_lock(&l2_ucache_locks[i]);
-                        if (use_l2) {
-                            if (!in_cache(l2_ucaches[i], test_addr)) {
-                                sprintf(ret, "0x%llx", test_addr);
+                // Loop through all cores' caches
+                for (int it = 0; it < cores; it++) {
+                    //g_mutex_lock(&l1_dcache_locks[it]);
+
+                    // Check if in caches
+                    if(!in_cache(l1_dcaches[it], test_addr) && !in_cache(l1_icaches[it], test_addr)) {
+                        for (int i = 0; i < cores; i++) {
+                            //g_mutex_lock(&l2_ucache_locks[i]);
+                            if (use_l2) {
+                                if (!in_cache(l2_ucaches[i], test_addr)) {
+                                    sprintf(ret, "0x%lx", test_addr);
+                                    free(addr_list);
+                                    return ret;
+                                }
+                            } else {
+                                sprintf(ret, "0x%lx", test_addr);
+                                free(addr_list);
                                 return ret;
                             }
-                        } else {
-                            sprintf(ret, "0x%llx", test_addr);
-                            return ret;
+                            //g_mutex_lock(&l2_ucache_locks[i]);
                         }
-                        //g_mutex_lock(&l2_ucache_locks[i]);
                     }
+                    //g_mutex_unlock(&l1_dcache_locks[it]);
                 }
-                //g_mutex_unlock(&l1_dcache_locks[it]);
             }
+            free(addr_list);
 
             sprintf(ret, "no valid block found");
         } else {
