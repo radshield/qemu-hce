@@ -605,10 +605,10 @@ def continuous(args):
     """Repeatedly inject bitflips into system and then fast-forward. Delays are uniformly distributed."""
 
     args = args.strip().split(" ")
-    if len(args) != 4 or args[3] not in ("mem", "reg", "all", "restart", "restart-later"):
+    if len(args) != 4 or args[3] not in ("mem", "reg", "l1", "restart", "restart-later"):
         print("usage: continuous <iterations> <min> <max> <mode>")
         print("the delay between successive injections is uniformly selected from the range [min, max]")
-        print("mode must be mem, reg, all, restart, or restart-later")
+        print("mode must be mem, l1, reg, restart, or restart-later")
         return
 
     iterations = int(args[0])
@@ -631,12 +631,6 @@ def continuous(args):
         elif mode == "reg":
             inject_reg_internal(None)
         elif mode == "mem":
-            inject_bitflip(sample_address(), 1)
-        elif mode == "all":
-            selected = random.randint(0, 10)
-            if selected == 0:
-                inject_reg_internal(None)
-            elif selected >= 1 and selected <=3:
-                inject_bitflip(sample_address("l1"), 1)
-            else:
-                inject_bitflip(sample_address("memory"), 1)
+            inject_bitflip(sample_address("memory"), 1)
+        elif mode == "l1":
+            inject_bitflip(sample_address("l1"), 1)

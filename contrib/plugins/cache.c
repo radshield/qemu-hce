@@ -407,7 +407,7 @@ static bool access_cache(Cache *cache, uint64_t addr)
 
     replaced_blk = get_invalid_block(cache, set);
 
-    if (replaced_blk == 0) {
+    if (replaced_blk == -1) {
         replaced_blk = get_replaced_block(cache, set);
     }
 
@@ -778,8 +778,8 @@ static void policy_init(void)
     }
 }
 
-char *plugin_monitor_cmd(const char *plugin_name,
-                         const char *command)
+static char *plugin_monitor_cmd(const char *plugin_name,
+                                const char *command)
 {
     if (g_strcmp0(plugin_name, "cache") == 0) {
         char* ret = malloc(32);
@@ -802,7 +802,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                         uint64_t tag_portion = l1_dcaches[c_id]->sets[s_id].blocks[block_sel].tag & l1_dcaches[c_id]->tag_mask;
                         uint64_t set_portion = (s_id << l1_dcaches[c_id]->blksize_shift) & l1_dcaches[c_id]->set_mask;
 
-                        sprintf(ret, "0x%lx", tag_portion | set_portion);
+                        sprintf(ret, "0x%llx", tag_portion | set_portion);
                         return ret;
                     }
                 }
@@ -811,10 +811,10 @@ char *plugin_monitor_cmd(const char *plugin_name,
             }
 
             free(cache_order);
-            ret = "no valid block found";
+            sprintf(ret, "no valid block found");
         } else if (g_strcmp0(command, "get_l2_addr") == 0) {
             if (!use_l2) {
-                ret = "not using L2 cache";
+                sprintf(ret, "not using L2 cache");
             } else {
                 size_t *cache_order = random_indices(cores);
 
@@ -833,7 +833,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                             uint64_t tag_portion = l2_ucaches[c_id]->sets[s_id].blocks[block_sel].tag & l2_ucaches[c_id]->tag_mask;
                             uint64_t set_portion = (s_id << l2_ucaches[c_id]->blksize_shift) & l2_ucaches[c_id]->set_mask;
 
-                            sprintf(ret, "0x%lx", tag_portion | set_portion);
+                            sprintf(ret, "0x%llx", tag_portion | set_portion);
                             return ret;
                         }
                     }
@@ -842,7 +842,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                 }
 
                 free(cache_order);
-                ret = "no valid block found";
+                sprintf(ret, "no valid block found");
             }
         } else if (g_strcmp0(command, "get_mem_addr") == 0) {
             size_t *cache_order = random_indices(cores);
@@ -870,7 +870,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                                 //g_mutex_lock(&l2_ucache_locks[itt]);
                                 if (in_cache(l2_ucaches[itt], blk_addr)) {
                                     flag = 1;
-                                    g_mutex_unlock(&l2_ucache_locks[itt]);
+                                    //g_mutex_unlock(&l2_ucache_locks[itt]);
                                     break;
                                 }
                                 //g_mutex_unlock(&l2_ucache_locks[itt]);
@@ -879,7 +879,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
 
                         // Found block not in L1 or L2
                         if (flag == 0) {
-                            sprintf(ret, "0x%lx", blk_addr);
+                            sprintf(ret, "0x%llx", blk_addr);
                             return ret;
                         }
                     }
@@ -889,9 +889,9 @@ char *plugin_monitor_cmd(const char *plugin_name,
             }
 
             free(cache_order);
-            ret = "no valid block found";
+            sprintf(ret, "no valid block found");
         } else {
-            ret = "unknown command";
+            sprintf(ret, "unknown command");
         }
 
         return ret;
