@@ -790,7 +790,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
             // Loop through all cores' caches
             for (int it = 0; it < cores; it++) {
                 int c_id = cache_order[it];
-                g_mutex_lock(&l1_dcache_locks[c_id]);
+                //g_mutex_lock(&l1_dcache_locks[c_id]);
                 size_t *set_order = random_indices(l1_dcaches[c_id]->num_sets);
 
                 // Check each set for valid blocks
@@ -807,7 +807,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                     }
                 }
                 free(set_order);
-                g_mutex_lock(&l1_dcache_locks[c_id]);
+                //g_mutex_lock(&l1_dcache_locks[c_id]);
             }
 
             free(cache_order);
@@ -821,7 +821,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                 // Loop through all cores' caches
                 for (int it = 0; it < cores; it++) {
                     int c_id = cache_order[it];
-                    g_mutex_lock(&l2_ucache_locks[c_id]);
+                    //g_mutex_lock(&l2_ucache_locks[c_id]);
                     size_t *set_order = random_indices(l2_ucaches[c_id]->num_sets);
 
                     // Check each set for valid blocks
@@ -838,7 +838,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                         }
                     }
                     free(set_order);
-                    g_mutex_lock(&l2_ucache_locks[c_id]);
+                    //g_mutex_lock(&l2_ucache_locks[c_id]);
                 }
 
                 free(cache_order);
@@ -850,7 +850,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
             // Loop through all cores' caches
             for (int it = 0; it < cores; it++) {
                 int c_id = cache_order[it];
-                g_mutex_lock(&l1_dcache_locks[c_id]);
+                //g_mutex_lock(&l1_dcache_locks[c_id]);
                 size_t *set_order = random_indices(l1_dcaches[c_id]->num_sets);
 
                 // Check each set for invalid blocks
@@ -867,13 +867,13 @@ char *plugin_monitor_cmd(const char *plugin_name,
                         char flag = 0;
                         if (use_l2) {
                             for (int itt = 0; itt < cores; itt++) {
-                                g_mutex_lock(&l2_ucache_locks[itt]);
+                                //g_mutex_lock(&l2_ucache_locks[itt]);
                                 if (in_cache(l2_ucaches[itt], blk_addr)) {
                                     flag = 1;
                                     g_mutex_unlock(&l2_ucache_locks[itt]);
                                     break;
                                 }
-                                g_mutex_unlock(&l2_ucache_locks[itt]);
+                                //g_mutex_unlock(&l2_ucache_locks[itt]);
                             }
                         }
 
@@ -885,7 +885,7 @@ char *plugin_monitor_cmd(const char *plugin_name,
                     }
                 }
                 free(set_order);
-                g_mutex_unlock(&l1_dcache_locks[c_id]);
+                //g_mutex_unlock(&l1_dcache_locks[c_id]);
             }
 
             free(cache_order);
