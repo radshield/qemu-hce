@@ -853,7 +853,7 @@ static char *plugin_monitor_cmd(const char *plugin_name,
         } else if (g_strcmp0(command, "get_mem_addr") == 0) {
             size_t *addr_list = random_indices(max_effective_addr, 16);
 
-            for (int addr_it = 0; addr_it < max_effective_addr / l1_dassoc; addr_it++) {
+            for (int addr_it = 0; addr_it < 16; addr_it++) {
                 size_t test_addr = addr_list[addr_it];
 
                 // Loop through all cores' caches
@@ -861,11 +861,11 @@ static char *plugin_monitor_cmd(const char *plugin_name,
                     //g_mutex_lock(&l1_dcache_locks[it]);
 
                     // Check if in caches
-                    if(!in_cache(l1_dcaches[it], test_addr) && !in_cache(l1_icaches[it], test_addr)) {
+                    if(in_cache(l1_dcaches[it], test_addr) == -1 && in_cache(l1_icaches[it], test_addr) == -1) {
                         for (int i = 0; i < cores; i++) {
                             //g_mutex_lock(&l2_ucache_locks[i]);
                             if (use_l2) {
-                                if (!in_cache(l2_ucaches[i], test_addr)) {
+                                if (in_cache(l2_ucaches[i], test_addr) == -1) {
                                     sprintf(ret, "0x%lx", test_addr);
                                     free(addr_list);
                                     return ret;
