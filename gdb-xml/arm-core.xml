@@ -28,7 +28,4 @@
        the FPA registers historically were placed between the PC
        and the CPSR in the "g" packet.  -->
   <reg name="cpsr" bitsize="32" regnum="25"/>
-
-  <!-- We will add system registers-->
-  <reg name="esr" bitsize="32" regnum="26"/>
 </feature>
