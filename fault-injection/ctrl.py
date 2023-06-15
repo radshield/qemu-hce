@@ -278,7 +278,7 @@ def step_ns(ns):
 def inject_bitflip(address, bytewidth, bit=None):
     assert bytewidth >= 1, "invalid bytewidth: %u" % bytewidth
     if bit is None:
-        bit = random.randint(0, bytewidth * 8 - 1)
+        bit = bytewidth * 8 - 2 # Chose the MSB, which is 1 away from the sign bit
 
     log_writer.log_command("inject 0x%08x %u %u" % (address, bytewidth, bit))
 
@@ -324,7 +324,10 @@ def inject_register_bitflip(register_name, bit=None):
     bitcount = 8 * value.type.sizeof
     bitmask = (1 << bitcount) - 1
     if bit is None:
-        bit = random.randint(0, bitcount - 1)
+        if value.type.is_scalar and value.type.is_signed and bitcount >= 2:
+            bit = bitcount - 2
+        else:
+            bit = bitcount - 1
 
     intval = int(value[lookup] if lookup else value)
     newval = intval ^ (1 << bit)
