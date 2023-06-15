@@ -255,6 +255,26 @@ static int arm_gdb_get_sysreg(CPUARMState *env, GByteArray *buf, int reg)
 
 static int arm_gdb_set_sysreg(CPUARMState *env, uint8_t *buf, int reg)
 {
+    ARMCPU *cpu = env_archcpu(env);
+    const ARMCPRegInfo *ri;
+    uint32_t key;
+
+    key = cpu->dyn_sysreg_xml.data.cpregs.keys[reg];
+    ri = get_arm_cp_reginfo(cpu->cp_regs, key);
+    
+    if (ri) {
+        if (cpreg_field_is_64bit(ri)) {
+            //return gdb_get_reg64(buf, (uint64_t)read_raw_cp_reg(env, ri));
+            // return gdb_write_register(cpu, buf, key)
+            write_raw_cp_reg(env, ri, ldq_p(buf));
+            return 8;
+        } else {
+            // return gdb_write_register(cpu, buf, key)
+            // return gdb_get_reg32(buf, (uint32_t)read_raw_cp_reg(env, ri));
+            write_raw_cp_reg(env, ri, ldl_p(buf));
+            return 4;
+        }
+    }
     return 0;
 }
 
