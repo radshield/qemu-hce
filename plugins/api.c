@@ -39,6 +39,7 @@
 #include "qemu/log.h"
 #include "tcg/tcg.h"
 #include "exec/exec-all.h"
+#include "exec/cpu-common.h"
 #include "exec/ram_addr.h"
 #include "disas/disas.h"
 #include "plugin.h"
@@ -448,4 +449,28 @@ uint64_t qemu_plugin_entry_code(void)
     entry = ts->info->entry;
 #endif
     return entry;
+}
+
+char *qemu_plugin_monitor_cmd(const char *plugin_name, const char *command)
+{
+    return qemu_plugin_monitor_cmd_cb(plugin_name, command);
+}
+
+bool qemu_plugin_read_memory_vaddr(uint64_t addr, uint8_t *buf, size_t len)
+{
+    CPUState *cpu = current_cpu;
+    if (!cpu || len == 0) {
+        return false;
+    }
+    return cpu_memory_rw_debug(cpu, addr, buf, len, false) == 0;
+}
+
+bool qemu_plugin_write_memory_vaddr(uint64_t addr, const uint8_t *buf,
+                                    size_t len)
+{
+    CPUState *cpu = current_cpu;
+    if (!cpu || len == 0) {
+        return false;
+    }
+    return cpu_memory_rw_debug(cpu, addr, (void *)buf, len, true) == 0;
 }

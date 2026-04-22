@@ -818,6 +818,31 @@ static char *plugin_monitor_cmd(const char *plugin_name,
 
             free(cache_order);
             sprintf(ret, "no valid block found");
+        } else if (g_strcmp0(command, "get_l1i_addr") == 0) {
+            size_t *cache_order = random_indices(cores, cores);
+
+            for (int it = 0; it < cores; it++) {
+                int c_id = cache_order[it];
+                size_t *set_order = random_indices(l1_icaches[c_id]->num_sets, l1_icaches[c_id]->num_sets);
+
+                for (int i = 0; i < l1_icaches[c_id]->num_sets; i++) {
+                    int s_id = set_order[i];
+                    int block_sel = get_valid_block(l1_icaches[c_id], s_id);
+                    if (block_sel != -1) {
+                        uint64_t tag_portion = l1_icaches[c_id]->sets[s_id].blocks[block_sel].tag & l1_icaches[c_id]->tag_mask;
+                        uint64_t set_portion = (s_id << l1_icaches[c_id]->blksize_shift) & l1_icaches[c_id]->set_mask;
+
+                        sprintf(ret, "0x%llx", tag_portion | set_portion);
+                        free(set_order);
+                        free(cache_order);
+                        return ret;
+                    }
+                }
+                free(set_order);
+            }
+
+            free(cache_order);
+            sprintf(ret, "no valid block found");
         } else if (g_strcmp0(command, "get_l2_addr") == 0) {
             if (!use_l2) {
                 sprintf(ret, "not using L2 cache");

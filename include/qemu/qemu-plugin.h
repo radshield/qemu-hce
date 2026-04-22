@@ -644,4 +644,45 @@ uint64_t qemu_plugin_end_code(void);
  */
 uint64_t qemu_plugin_entry_code(void);
 
+/**
+ * qemu_plugin_monitor_cmd() - invoke another plugin's monitor command
+ * @plugin_name: name of the target plugin (e.g. "cache")
+ * @command: the command string to send
+ *
+ * Dispatches a monitor command to the plugin identified by @plugin_name.
+ * Returns the plugin's response string, or NULL if no plugin handled it.
+ * The caller must free the returned string with free().
+ */
+char *qemu_plugin_monitor_cmd(const char *plugin_name, const char *command);
+
+/**
+ * qemu_plugin_read_memory_vaddr() - read from memory using a virtual address
+ * @addr: a virtual address to read from
+ * @buf: buffer to store data into
+ * @len: the number of bytes to read, starting from @addr
+ *
+ * @len bytes of data is read starting at @addr and stored into @buf.
+ *
+ * This function should only be called from vCPU context (i.e. in callbacks).
+ *
+ * Returns true on success and false on failure.
+ */
+bool qemu_plugin_read_memory_vaddr(uint64_t addr, uint8_t *buf, size_t len);
+
+/**
+ * qemu_plugin_write_memory_vaddr() - write to memory using a virtual address
+ * @addr: a virtual address to write to
+ * @buf: buffer containing the data to write
+ * @len: the number of bytes to write
+ *
+ * @len bytes from @buf will be written to memory starting at the virtual
+ * address @addr.
+ *
+ * This function should only be called from vCPU context (i.e. in callbacks).
+ *
+ * Returns true on success and false on failure.
+ */
+bool qemu_plugin_write_memory_vaddr(uint64_t addr, const uint8_t *buf,
+                                    size_t len);
+
 #endif /* QEMU_QEMU_PLUGIN_H */
