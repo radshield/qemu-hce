@@ -1,20 +1,18 @@
 /*
  * Fault Injection Plugin
  *
- * Simulates radiation-induced bit flips in data cache, instruction cache,
- * L2 cache, and main memory. On each memory or instruction access, a random
- * bit flip may be injected at an address belonging to the configured cache
- * level or memory, with independently configurable probabilities.
+ * Simulates radiation-induced bit flips on memory and instruction accesses.
+ * The flip probability depends on which cache level the accessed address
+ * resides in: L1 data, L1 instruction, L2, or main memory.
  *
  * Requires the "cache" plugin to be loaded first. At init, this plugin
- * resolves cache_get_l1d_addr, cache_get_l1i_addr, cache_get_l2_addr, and
- * cache_get_mem_addr via dlsym.
+ * resolves cache_is_in_l1d, cache_is_in_l1i, and cache_is_in_l2 via dlsym.
  *
  * Parameters:
- *   l1d_flip_chance=N   - chance (1 in N) of flipping a bit in L1 data cache
- *   l1i_flip_chance=N   - chance (1 in N) of flipping a bit in L1 insn cache
- *   l2_flip_chance=N    - chance (1 in N) of flipping a bit in L2 cache
- *   mem_flip_chance=N   - chance (1 in N) of flipping a bit in main memory
+ *   l1d_flip_chance=N   - chance (1 in N) of flipping a bit on L1d hit
+ *   l1i_flip_chance=N   - chance (1 in N) of flipping a bit on L1i hit
+ *   l2_flip_chance=N    - chance (1 in N) of flipping a bit on L2 hit
+ *   mem_flip_chance=N   - chance (1 in N) of flipping a bit on cache miss
  *
  * Copyright (C) 2026
  * License: GNU GPL, version 2 or later.
@@ -48,22 +46,21 @@ static uint64_t total_accesses;
 static GMutex rng_lock;
 static GRand *rng;
 
-typedef uint64_t (*cache_addr_fn)(void);
+typedef bool (*cache_check_fn)(uint64_t addr, int core_idx);
 
-static cache_addr_fn get_l1d_addr;
-static cache_addr_fn get_l1i_addr;
-static cache_addr_fn get_l2_addr;
-static cache_addr_fn get_mem_addr;
+static cache_check_fn is_in_l1d;
+static cache_check_fn is_in_l1i;
+static cache_check_fn is_in_l2;
 
 /**
  * Read a byte at the given virtual address, flip a random bit, and write it
  * back. Returns true if the flip was successfully applied.
  */
-static bool flip_bit_at(uint64_t addr)
+static bool flip_bit_at(uint64_t vaddr)
 {
     uint8_t byte;
 
-    if (!qemu_plugin_read_memory_vaddr(addr, &byte, 1)) {
+    if (!qemu_plugin_read_memory_vaddr(vaddr, &byte, 1)) {
         return false;
     }
 
@@ -72,7 +69,7 @@ static bool flip_bit_at(uint64_t addr)
     g_mutex_unlock(&rng_lock);
     byte ^= (1u << bit);
 
-    if (!qemu_plugin_write_memory_vaddr(addr, &byte, 1)) {
+    if (!qemu_plugin_write_memory_vaddr(vaddr, &byte, 1)) {
         return false;
     }
 
@@ -80,34 +77,17 @@ static bool flip_bit_at(uint64_t addr)
 }
 
 /**
- * Try to inject a fault for a given cache level.
- * @chance: 1-in-N probability (0 means disabled)
- * @get_addr: function to get a target address from the cache plugin
- * @counter: pointer to the flip counter for this level
+ * Roll the dice for a 1-in-N chance. Returns true if the flip should happen.
  */
-static void maybe_flip(uint64_t chance, cache_addr_fn get_addr,
-                        uint64_t *counter)
+static bool should_flip(uint64_t chance)
 {
-    if (chance == 0 || !get_addr) {
-        return;
+    if (chance == 0) {
+        return false;
     }
-
     g_mutex_lock(&rng_lock);
-    bool should_flip = (g_rand_int_range(rng, 0, chance) == 0);
+    bool result = (g_rand_int_range(rng, 0, chance) == 0);
     g_mutex_unlock(&rng_lock);
-
-    if (!should_flip) {
-        return;
-    }
-
-    uint64_t addr = get_addr();
-    if (addr == UINT64_MAX) {
-        return;
-    }
-
-    if (flip_bit_at(addr)) {
-        __atomic_fetch_add(counter, 1, __ATOMIC_SEQ_CST);
-    }
+    return result;
 }
 
 static void vcpu_mem_access(unsigned int vcpu_index,
@@ -116,14 +96,38 @@ static void vcpu_mem_access(unsigned int vcpu_index,
 {
     __atomic_fetch_add(&total_accesses, 1, __ATOMIC_SEQ_CST);
 
-    maybe_flip(l1d_flip_chance, get_l1d_addr, &l1d_flips);
-    maybe_flip(l2_flip_chance, get_l2_addr, &l2_flips);
-    maybe_flip(mem_flip_chance, get_mem_addr, &mem_flips);
+    struct qemu_plugin_hwaddr *hwaddr = qemu_plugin_get_hwaddr(info, vaddr);
+    if (hwaddr && qemu_plugin_hwaddr_is_io(hwaddr)) {
+        return;
+    }
+    uint64_t paddr = hwaddr ? qemu_plugin_hwaddr_phys_addr(hwaddr) : vaddr;
+
+    uint64_t chance;
+    uint64_t *counter;
+
+    if (is_in_l1d && is_in_l1d(paddr, vcpu_index)) {
+        chance = l1d_flip_chance;
+        counter = &l1d_flips;
+    } else if (is_in_l2 && is_in_l2(paddr, vcpu_index)) {
+        chance = l2_flip_chance;
+        counter = &l2_flips;
+    } else {
+        chance = mem_flip_chance;
+        counter = &mem_flips;
+    }
+
+    if (should_flip(chance) && flip_bit_at(vaddr)) {
+        __atomic_fetch_add(counter, 1, __ATOMIC_SEQ_CST);
+    }
 }
 
 static void vcpu_insn_exec(unsigned int vcpu_index, void *userdata)
 {
-    maybe_flip(l1i_flip_chance, get_l1i_addr, &l1i_flips);
+    uint64_t vaddr = (uint64_t)(uintptr_t)userdata;
+
+    if (should_flip(l1i_flip_chance) && flip_bit_at(vaddr)) {
+        __atomic_fetch_add(&l1i_flips, 1, __ATOMIC_SEQ_CST);
+    }
 }
 
 static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
@@ -138,9 +142,10 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                                          QEMU_PLUGIN_MEM_RW, NULL);
 
         if (l1i_flip_chance) {
-            qemu_plugin_register_vcpu_insn_exec_cb(insn, vcpu_insn_exec,
-                                                   QEMU_PLUGIN_CB_NO_REGS,
-                                                   NULL);
+            uint64_t vaddr = qemu_plugin_insn_vaddr(insn);
+            qemu_plugin_register_vcpu_insn_exec_cb(
+                insn, vcpu_insn_exec, QEMU_PLUGIN_CB_NO_REGS,
+                (void *)(uintptr_t)vaddr);
         }
     }
 }
@@ -220,14 +225,13 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
         return -1;
     }
 
-    get_l1d_addr = dlsym(cache_handle, "cache_get_l1d_addr");
-    get_l1i_addr = dlsym(cache_handle, "cache_get_l1i_addr");
-    get_l2_addr = dlsym(cache_handle, "cache_get_l2_addr");
-    get_mem_addr = dlsym(cache_handle, "cache_get_mem_addr");
+    is_in_l1d = dlsym(cache_handle, "cache_is_in_l1d");
+    is_in_l1i = dlsym(cache_handle, "cache_is_in_l1i");
+    is_in_l2 = dlsym(cache_handle, "cache_is_in_l2");
 
-    if (!get_l1d_addr && !get_l1i_addr && !get_l2_addr && !get_mem_addr) {
+    if (!is_in_l1d && !is_in_l1i && !is_in_l2) {
         fprintf(stderr, "fault_injection: cache plugin has no "
-                "cache_get_* symbols\n");
+                "cache_is_in_* symbols\n");
         dlclose(cache_handle);
         return -1;
     }

@@ -786,85 +786,24 @@ static void policy_init(void)
 
 /*
  * Exported functions for use by other plugins (e.g. fault_injection) via dlsym.
- * Each returns a random address from the respective cache level, or UINT64_MAX
- * on failure.
+ * Check whether a physical address resides in a given cache level.
  */
-static uint64_t get_random_addr_from_caches(Cache **caches)
+QEMU_PLUGIN_EXPORT bool cache_is_in_l1d(uint64_t addr, int core_idx)
 {
-    size_t *cache_order = random_indices(cores, cores);
-
-    for (int it = 0; it < cores; it++) {
-        int c_id = cache_order[it];
-        Cache *cache = caches[c_id];
-        size_t *set_order = random_indices(cache->num_sets, cache->num_sets);
-
-        for (int i = 0; i < cache->num_sets; i++) {
-            int s_id = set_order[i];
-            int blk = get_valid_block(cache, s_id);
-            if (blk != -1) {
-                uint64_t tag = cache->sets[s_id].blocks[blk].tag & cache->tag_mask;
-                uint64_t set = (s_id << cache->blksize_shift) & cache->set_mask;
-                free(set_order);
-                free(cache_order);
-                return tag | set;
-            }
-        }
-        free(set_order);
-    }
-
-    free(cache_order);
-    return UINT64_MAX;
+    return in_cache(l1_dcaches[core_idx % cores], addr) != -1;
 }
 
-QEMU_PLUGIN_EXPORT uint64_t cache_get_l1d_addr(void)
+QEMU_PLUGIN_EXPORT bool cache_is_in_l1i(uint64_t addr, int core_idx)
 {
-    return get_random_addr_from_caches(l1_dcaches);
+    return in_cache(l1_icaches[core_idx % cores], addr) != -1;
 }
 
-QEMU_PLUGIN_EXPORT uint64_t cache_get_l1i_addr(void)
-{
-    return get_random_addr_from_caches(l1_icaches);
-}
-
-QEMU_PLUGIN_EXPORT uint64_t cache_get_l2_addr(void)
+QEMU_PLUGIN_EXPORT bool cache_is_in_l2(uint64_t addr, int core_idx)
 {
     if (!use_l2) {
-        return UINT64_MAX;
+        return false;
     }
-    return get_random_addr_from_caches(l2_ucaches);
-}
-
-QEMU_PLUGIN_EXPORT uint64_t cache_get_mem_addr(void)
-{
-    size_t *addr_list = random_indices(max_effective_addr, 16);
-
-    for (int addr_it = 0; addr_it < 16; addr_it++) {
-        size_t test_addr = addr_list[addr_it];
-
-        for (int it = 0; it < cores; it++) {
-            if (in_cache(l1_dcaches[it], test_addr) == -1 &&
-                in_cache(l1_icaches[it], test_addr) == -1) {
-                if (!use_l2) {
-                    free(addr_list);
-                    return test_addr;
-                }
-                bool in_l2 = false;
-                for (int i = 0; i < cores; i++) {
-                    if (in_cache(l2_ucaches[i], test_addr) != -1) {
-                        in_l2 = true;
-                        break;
-                    }
-                }
-                if (!in_l2) {
-                    free(addr_list);
-                    return test_addr;
-                }
-            }
-        }
-    }
-
-    free(addr_list);
-    return UINT64_MAX;
+    return in_cache(l2_ucaches[core_idx % cores], addr) != -1;
 }
 
 static char *plugin_monitor_cmd(const char *plugin_name,
