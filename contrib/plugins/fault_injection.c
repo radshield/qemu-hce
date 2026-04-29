@@ -20,6 +20,7 @@
  * License: GNU GPL, version 2 or later.
  */
 
+#define _GNU_SOURCE
 #include <dlfcn.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -191,15 +192,43 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
         return -1;
     }
 
-    /* Resolve cache plugin functions */
-    get_l1d_addr = dlsym(RTLD_DEFAULT, "cache_get_l1d_addr");
-    get_l1i_addr = dlsym(RTLD_DEFAULT, "cache_get_l1i_addr");
-    get_l2_addr = dlsym(RTLD_DEFAULT, "cache_get_l2_addr");
-    get_mem_addr = dlsym(RTLD_DEFAULT, "cache_get_mem_addr");
+    /*
+     * Find libcache.so in the same directory as our own .so.
+     * Use dladdr on one of our own symbols to find our path, then replace
+     * the filename with libcache.so.
+     */
+    Dl_info self_info;
+    if (!dladdr((void *)qemu_plugin_install, &self_info)) {
+        fprintf(stderr, "fault_injection: dladdr failed: %s\n", dlerror());
+        return -1;
+    }
+
+    const char *self_path = self_info.dli_fname;
+    const char *last_slash = strrchr(self_path, '/');
+    g_autofree char *cache_path = NULL;
+    if (last_slash) {
+        cache_path = g_strdup_printf("%.*s/libcache.so",
+                                     (int)(last_slash - self_path), self_path);
+    } else {
+        cache_path = g_strdup("libcache.so");
+    }
+
+    void *cache_handle = dlopen(cache_path, RTLD_LAZY | RTLD_NOLOAD);
+    if (!cache_handle) {
+        fprintf(stderr, "fault_injection: cache plugin not loaded — "
+                "load libcache.so before libfault_injection.so\n");
+        return -1;
+    }
+
+    get_l1d_addr = dlsym(cache_handle, "cache_get_l1d_addr");
+    get_l1i_addr = dlsym(cache_handle, "cache_get_l1i_addr");
+    get_l2_addr = dlsym(cache_handle, "cache_get_l2_addr");
+    get_mem_addr = dlsym(cache_handle, "cache_get_mem_addr");
 
     if (!get_l1d_addr && !get_l1i_addr && !get_l2_addr && !get_mem_addr) {
-        fprintf(stderr, "fault_injection: cache plugin not loaded — "
-                "load it before fault_injection\n");
+        fprintf(stderr, "fault_injection: cache plugin has no "
+                "cache_get_* symbols\n");
+        dlclose(cache_handle);
         return -1;
     }
 
