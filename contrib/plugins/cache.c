@@ -784,6 +784,28 @@ static void policy_init(void)
     }
 }
 
+/*
+ * Exported functions for use by other plugins (e.g. fault_injection) via dlsym.
+ * Check whether a physical address resides in a given cache level.
+ */
+QEMU_PLUGIN_EXPORT bool cache_is_in_l1d(uint64_t addr, int core_idx)
+{
+    return in_cache(l1_dcaches[core_idx % cores], addr) != -1;
+}
+
+QEMU_PLUGIN_EXPORT bool cache_is_in_l1i(uint64_t addr, int core_idx)
+{
+    return in_cache(l1_icaches[core_idx % cores], addr) != -1;
+}
+
+QEMU_PLUGIN_EXPORT bool cache_is_in_l2(uint64_t addr, int core_idx)
+{
+    if (!use_l2) {
+        return false;
+    }
+    return in_cache(l2_ucaches[core_idx % cores], addr) != -1;
+}
+
 static char *plugin_monitor_cmd(const char *plugin_name,
                                 const char *command)
 {
@@ -814,6 +836,31 @@ static char *plugin_monitor_cmd(const char *plugin_name,
                 }
                 free(set_order);
                 //g_mutex_lock(&l1_dcache_locks[c_id]);
+            }
+
+            free(cache_order);
+            sprintf(ret, "no valid block found");
+        } else if (g_strcmp0(command, "get_l1i_addr") == 0) {
+            size_t *cache_order = random_indices(cores, cores);
+
+            for (int it = 0; it < cores; it++) {
+                int c_id = cache_order[it];
+                size_t *set_order = random_indices(l1_icaches[c_id]->num_sets, l1_icaches[c_id]->num_sets);
+
+                for (int i = 0; i < l1_icaches[c_id]->num_sets; i++) {
+                    int s_id = set_order[i];
+                    int block_sel = get_valid_block(l1_icaches[c_id], s_id);
+                    if (block_sel != -1) {
+                        uint64_t tag_portion = l1_icaches[c_id]->sets[s_id].blocks[block_sel].tag & l1_icaches[c_id]->tag_mask;
+                        uint64_t set_portion = (s_id << l1_icaches[c_id]->blksize_shift) & l1_icaches[c_id]->set_mask;
+
+                        sprintf(ret, "0x%llx", tag_portion | set_portion);
+                        free(set_order);
+                        free(cache_order);
+                        return ret;
+                    }
+                }
+                free(set_order);
             }
 
             free(cache_order);
