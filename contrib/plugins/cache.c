@@ -784,18 +784,23 @@ static void policy_init(void)
     }
 }
 
-/*
- * Exported functions for use by other plugins (e.g. fault_injection) via dlsym.
- * Check whether a physical address resides in a given cache level.
- */
+/* Check whether a physical address resides in a given cache level. */
 QEMU_PLUGIN_EXPORT bool cache_is_in_l1d(uint64_t addr, int core_idx)
 {
-    return in_cache(l1_dcaches[core_idx % cores], addr) != -1;
+    int idx = core_idx % cores;
+    g_mutex_lock(&l1_dcache_locks[idx]);
+    bool hit = in_cache(l1_dcaches[idx], addr) != -1;
+    g_mutex_unlock(&l1_dcache_locks[idx]);
+    return hit;
 }
 
 QEMU_PLUGIN_EXPORT bool cache_is_in_l1i(uint64_t addr, int core_idx)
 {
-    return in_cache(l1_icaches[core_idx % cores], addr) != -1;
+    int idx = core_idx % cores;
+    g_mutex_lock(&l1_icache_locks[idx]);
+    bool hit = in_cache(l1_icaches[idx], addr) != -1;
+    g_mutex_unlock(&l1_icache_locks[idx]);
+    return hit;
 }
 
 QEMU_PLUGIN_EXPORT bool cache_is_in_l2(uint64_t addr, int core_idx)
@@ -803,7 +808,11 @@ QEMU_PLUGIN_EXPORT bool cache_is_in_l2(uint64_t addr, int core_idx)
     if (!use_l2) {
         return false;
     }
-    return in_cache(l2_ucaches[core_idx % cores], addr) != -1;
+    int idx = core_idx % cores;
+    g_mutex_lock(&l2_ucache_locks[idx]);
+    bool hit = in_cache(l2_ucaches[idx], addr) != -1;
+    g_mutex_unlock(&l2_ucache_locks[idx]);
+    return hit;
 }
 
 static char *plugin_monitor_cmd(const char *plugin_name,
@@ -831,6 +840,8 @@ static char *plugin_monitor_cmd(const char *plugin_name,
                         uint64_t set_portion = (s_id << l1_dcaches[c_id]->blksize_shift) & l1_dcaches[c_id]->set_mask;
 
                         sprintf(ret, "0x%llx", tag_portion | set_portion);
+                        free(set_order);
+                        free(cache_order);
                         return ret;
                     }
                 }
@@ -887,6 +898,8 @@ static char *plugin_monitor_cmd(const char *plugin_name,
                             uint64_t set_portion = (s_id << l2_ucaches[c_id]->blksize_shift) & l2_ucaches[c_id]->set_mask;
 
                             sprintf(ret, "0x%llx", tag_portion | set_portion);
+                            free(set_order);
+                            free(cache_order);
                             return ret;
                         }
                     }
