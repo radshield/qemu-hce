@@ -1,0 +1,137 @@
+name: Fault Injection Smoke Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  fault-injection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Install QEMU build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential meson ninja-build pkg-config \
+            libglib2.0-dev libpixman-1-dev libslirp-dev \
+            python3 python3-venv qemu-utils expect
+
+      - name: Build QEMU (riscv64-softmmu + plugins)
+        run: |
+          ./configure --target-list=riscv64-softmmu --enable-plugins --enable-slirp
+          make -j$(nproc)
+
+      - name: Download SGL image artifact
+        run: |
+          gh run download -R elisa-tech/meta-sgl \
+            -n sgl-qemuriscv64-spaceros \
+            -D sgl-image
+          ls -lh sgl-image/
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Prepare disk image
+        run: |
+          # Find the rootfs ext4
+          ROOTFS=$(find sgl-image -name '*.ext4' | head -1)
+          if [ -z "$ROOTFS" ]; then
+            echo "ERROR: No ext4 rootfs found in artifact"
+            ls -R sgl-image/
+            exit 1
+          fi
+          echo "Using rootfs: $ROOTFS"
+
+          # Convert ext4 to qcow2 for snapshot support
+          qemu-img convert -f raw -O qcow2 "$ROOTFS" rootfs.qcow2
+          qemu-img resize rootfs.qcow2 4G
+
+      - name: Create VM snapshot
+        run: |
+          KERNEL=$(find sgl-image -name 'Image' -o -name 'Image.gz' | head -1)
+          if [ -z "$KERNEL" ]; then
+            echo "ERROR: No kernel Image found in artifact"
+            ls -R sgl-image/
+            exit 1
+          fi
+          echo "Using kernel: $KERNEL"
+
+          # Boot QEMU without plugins, wait for login prompt, save snapshot
+          cat > save-snapshot.exp <<'EXPECT'
+          set timeout 180
+          spawn ./build/qemu-system-riscv64 \
+            -M virt -m 512M -nographic \
+            -kernel [lindex $argv 0] \
+            -append "root=/dev/vda rw console=ttyS0" \
+            -drive file=rootfs.qcow2,format=qcow2,id=hd0,if=none \
+            -device virtio-blk-device,drive=hd0 \
+            -monitor unix:qemu-monitor.sock,server,nowait
+
+          expect {
+            "login:" {}
+            timeout { puts "TIMEOUT waiting for login"; exit 1 }
+          }
+
+          # Login as root
+          send "root\r"
+          expect "# "
+
+          # Save snapshot via monitor
+          system "echo savevm root_shell | socat - UNIX-CONNECT:qemu-monitor.sock"
+          sleep 3
+          system "echo quit | socat - UNIX-CONNECT:qemu-monitor.sock"
+
+          expect eof
+          EXPECT
+
+          sudo apt-get install -y --no-install-recommends socat
+          expect save-snapshot.exp "$KERNEL"
+
+      - name: Run fault injection smoke test
+        run: |
+          KERNEL=$(find sgl-image -name 'Image' -o -name 'Image.gz' | head -1)
+
+          cat > smoke-test.exp <<'EXPECT'
+          set timeout 120
+          spawn ./build/qemu-system-riscv64 \
+            -M virt -m 512M -nographic \
+            -kernel [lindex $argv 0] \
+            -append "root=/dev/vda rw console=ttyS0" \
+            -drive file=rootfs.qcow2,format=qcow2,id=hd0,if=none \
+            -device virtio-blk-device,drive=hd0 \
+            -plugin ./build/contrib/plugins/libcache.so,cores=4,dcachesize=32768,dassoc=8,dblksize=64,icachesize=32768,iassoc=8,iblksize=64,l2cachesize=2097152,l2assoc=32,l2blksize=64 \
+            -plugin ./build/contrib/plugins/libfault_injection.so,l1d_flip_chance=1000000000,l1i_flip_chance=1000000000,l2_flip_chance=1000000000,mem_flip_chance=1000000000 \
+            -d plugin \
+            -loadvm root_shell
+
+          expect {
+            "# " {}
+            timeout { puts "TIMEOUT waiting for shell"; exit 1 }
+          }
+
+          # Run a workload to exercise fault injection
+          send "echo 'Fault injection running' && ls -la / && cat /proc/cpuinfo && echo 'SMOKE_TEST_DONE'\r"
+          expect {
+            "SMOKE_TEST_DONE" {}
+            timeout { puts "TIMEOUT running workload"; exit 1 }
+          }
+
+          # Shut down
+          send "poweroff\r"
+          expect {
+            eof {}
+            timeout { puts "TIMEOUT on shutdown"; exit 1 }
+          }
+          EXPECT
+
+          expect smoke-test.exp "$KERNEL"
+          echo "Smoke test passed"
