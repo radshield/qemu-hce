@@ -1,0 +1,26 @@
+#!/usr/bin/expect -f
+set timeout 180
+set kernel [lindex $argv 0]
+set qemu [lindex $argv 1]
+
+spawn {*}$qemu \
+    -M virt -m 512M -nographic \
+    -kernel $kernel \
+    -append "root=/dev/vda rw console=ttyS0" \
+    -drive file=rootfs.qcow2,format=qcow2,id=hd0,if=none \
+    -device virtio-blk-device,drive=hd0 \
+    -monitor unix:qemu-monitor.sock,server,nowait
+
+expect {
+    "login:" {}
+    timeout { puts "TIMEOUT waiting for login"; exit 1 }
+}
+
+send "root\r"
+expect "# "
+
+system "echo savevm root_shell | socat - UNIX-CONNECT:qemu-monitor.sock"
+sleep 3
+system "echo quit | socat - UNIX-CONNECT:qemu-monitor.sock"
+
+expect eof
