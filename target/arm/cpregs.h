@@ -469,6 +469,7 @@ static inline bool cp_access_ok(int current_el,
 /* Raw read of a coprocessor register (as needed for migration, etc) */
 uint64_t read_raw_cp_reg(CPUARMState *env, const ARMCPRegInfo *ri);
 
+void write_raw_cp_reg(CPUARMState *env, const ARMCPRegInfo *ri, uint64_t v);
 /*
  * Return true if the cp register encoding is in the "feature ID space" as
  * defined by FEAT_IDST (and thus should be reported with ER_ELx.EC
