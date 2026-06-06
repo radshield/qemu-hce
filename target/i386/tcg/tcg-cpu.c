@@ -49,10 +49,15 @@ static void x86_cpu_exec_exit(CPUState *cs)
 static void x86_cpu_synchronize_from_tb(CPUState *cs,
                                         const TranslationBlock *tb)
 {
-    /* The instruction pointer is always up to date with TARGET_TB_PCREL. */
-    if (!TARGET_TB_PCREL) {
-        CPUX86State *env = cs->env_ptr;
-        env->eip = tb_pc(tb) - tb->cs_base;
+    /* The instruction pointer is always up to date with CF_PCREL. */
+    if (!(tb_cflags(tb) & CF_PCREL)) {
+        CPUX86State *env = cpu_env(cs);
+
+        if (tb->flags & HF_CS64_MASK) {
+            env->eip = tb->pc;
+        } else {
+            env->eip = (uint32_t)(tb->pc - tb->cs_base);
+        }
     }
 }
 
@@ -63,12 +68,26 @@ static void x86_restore_state_to_opc(CPUState *cs,
     X86CPU *cpu = X86_CPU(cs);
     CPUX86State *env = &cpu->env;
     int cc_op = data[1];
+    uint64_t new_pc;
 
-    if (TARGET_TB_PCREL) {
-        env->eip = (env->eip & TARGET_PAGE_MASK) | data[0];
+    if (tb_cflags(tb) & CF_PCREL) {
+        /*
+         * data[0] in PC-relative TBs is also a linear address, i.e. an address with
+         * the CS base added, because it is not guaranteed that EIP bits 12 and higher
+         * stay the same across the translation block.  Add the CS base back before
+         * replacing the low bits, and subtract it below just like for !CF_PCREL.
+         */
+        uint64_t pc = env->eip + tb->cs_base;
+        new_pc = (pc & TARGET_PAGE_MASK) | data[0];
     } else {
-        env->eip = data[0] - tb->cs_base;
+        new_pc = data[0];
     }
+    if (tb->flags & HF_CS64_MASK) {
+        env->eip = new_pc;
+    } else {
+        env->eip = (uint32_t)(new_pc - tb->cs_base);
+    }
+
     if (cc_op != CC_OP_DYNAMIC) {
         env->cc_op = cc_op;
     }
@@ -163,7 +182,7 @@ static void tcg_cpu_accel_class_init(ObjectClass *oc, void *data)
     AccelCPUClass *acc = ACCEL_CPU_CLASS(oc);
 
 #ifndef CONFIG_USER_ONLY
-    acc->cpu_realizefn = tcg_cpu_realizefn;
+    acc->cpu_target_realize = tcg_cpu_realizefn;
 #endif /* CONFIG_USER_ONLY */
 
     acc->cpu_class_init = tcg_cpu_class_init;

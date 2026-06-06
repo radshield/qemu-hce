@@ -12,24 +12,9 @@
 #include "qemu/error-report.h"
 #include "qemu/queue.h"
 #include "qemu/option.h"
+#include "qemu/plugin-event.h"
 #include "exec/memopidx.h"
-
-/*
- * Events that plugins can subscribe to.
- */
-enum qemu_plugin_event {
-    QEMU_PLUGIN_EV_VCPU_INIT,
-    QEMU_PLUGIN_EV_VCPU_EXIT,
-    QEMU_PLUGIN_EV_VCPU_TB_TRANS,
-    QEMU_PLUGIN_EV_VCPU_IDLE,
-    QEMU_PLUGIN_EV_VCPU_RESUME,
-    QEMU_PLUGIN_EV_VCPU_SYSCALL,
-    QEMU_PLUGIN_EV_VCPU_SYSCALL_RET,
-    QEMU_PLUGIN_EV_FLUSH,
-    QEMU_PLUGIN_EV_ATEXIT,
-    QEMU_PLUGIN_EV_MONITOR_CMD,
-    QEMU_PLUGIN_EV_MAX, /* total number of plugin events we support */
-};
+#include "hw/core/cpu.h"
 
 /*
  * Option parsing/processing.
@@ -65,7 +50,7 @@ static inline void qemu_plugin_add_opts(void)
     qemu_add_opts(&qemu_plugin_opts);
 }
 
-void qemu_plugin_opt_parse(const char *optarg, QemuPluginList *head);
+void qemu_plugin_opt_parse(const char *optstr, QemuPluginList *head);
 int qemu_plugin_load_list(QemuPluginList *head, Error **errp);
 
 union qemu_plugin_cb_sig {
@@ -120,7 +105,10 @@ struct qemu_plugin_insn {
     void *haddr;
     GArray *cbs[PLUGIN_N_CB_TYPES][PLUGIN_N_CB_SUBTYPES];
     bool calls_helpers;
+
+    /* if set, the instruction calls helpers that might access guest memory */
     bool mem_helper;
+
     bool mem_only;
 };
 
@@ -160,6 +148,10 @@ struct qemu_plugin_tb {
     void *haddr1;
     void *haddr2;
     bool mem_only;
+
+    /* if set, the TB calls helpers that might access guest memory */
+    bool mem_helper;
+
     GArray *cbs[PLUGIN_N_CB_SUBTYPES];
 };
 
@@ -217,7 +209,10 @@ char *qemu_plugin_monitor_cmd_cb(const char *name,
 
 void qemu_plugin_add_dyn_cb_arr(GArray *arr);
 
-void qemu_plugin_disable_mem_helpers(CPUState *cpu);
+static inline void qemu_plugin_disable_mem_helpers(CPUState *cpu)
+{
+    cpu->plugin_mem_cbs = NULL;
+}
 
 /**
  * qemu_plugin_user_exit(): clean-up callbacks before calling exit callbacks
@@ -251,7 +246,7 @@ void qemu_plugin_user_postfork(bool is_child);
 static inline void qemu_plugin_add_opts(void)
 { }
 
-static inline void qemu_plugin_opt_parse(const char *optarg,
+static inline void qemu_plugin_opt_parse(const char *optstr,
                                          QemuPluginList *head)
 {
     error_report("plugin interface not enabled in this build");
@@ -315,6 +310,12 @@ static inline void qemu_plugin_user_prefork_lock(void)
 
 static inline void qemu_plugin_user_postfork(bool is_child)
 { }
+
+static inline char *qemu_plugin_monitor_cmd_cb(const char *name,
+                                               const char *cmd_data)
+{
+    return NULL;
+}
 
 #endif /* !CONFIG_PLUGIN */
 

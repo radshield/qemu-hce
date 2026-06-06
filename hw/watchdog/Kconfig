@@ -24,3 +24,7 @@ config WDT_SBSA
 config WDT_STRICT
     bool
     default y
+
+config ALLWINNER_WDT
+    bool
+    select PTIMER

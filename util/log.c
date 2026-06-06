@@ -298,6 +298,8 @@ static bool qemu_set_log_internal(const char *filename, bool changed_name,
             r->fd = logfile;
             qatomic_rcu_set(&global_file, NULL);
             call_rcu(r, rcu_close_file, rcu);
+        }
+        if (changed_name) {
             logfile = NULL;
         }
     }
@@ -489,12 +491,14 @@ const QEMULogItem qemu_log_items[] = {
       "do not chain compiled TBs so that \"exec\" and \"cpu\" show\n"
       "complete traces" },
 #ifdef CONFIG_PLUGIN
-    { CPU_LOG_PLUGIN, "plugin", "output from TCG plugins\n"},
+    { CPU_LOG_PLUGIN, "plugin", "output from TCG plugins"},
 #endif
     { LOG_STRACE, "strace",
       "log every user-mode syscall, its input, and its result" },
     { LOG_PER_THREAD, "tid",
       "open a separate log file per thread; filename must contain '%d'" },
+    { CPU_LOG_TB_VPU, "vpu",
+      "include VPU registers in the 'cpu' logging" },
     { 0, NULL, NULL },
 };
 

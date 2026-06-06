@@ -45,6 +45,8 @@
 #include "hw/loader.h"
 #include "hw/sysbus.h"
 #include "qemu/log.h"
+#include "qemu/error-report.h"
+
 
 /* Nokia N8x0 support */
 struct n800_s {
@@ -1430,6 +1432,8 @@ static void n800_class_init(ObjectClass *oc, void *data)
     /* Actually two chips of 0x4000000 bytes each */
     mc->default_ram_size = 0x08000000;
     mc->default_ram_id = "omap2.dram";
+
+    machine_add_audiodev_property(mc);
 }
 
 static const TypeInfo n800_type = {
@@ -1450,6 +1454,8 @@ static void n810_class_init(ObjectClass *oc, void *data)
     /* Actually two chips of 0x4000000 bytes each */
     mc->default_ram_size = 0x08000000;
     mc->default_ram_id = "omap2.dram";
+
+    machine_add_audiodev_property(mc);
 }
 
 static const TypeInfo n810_type = {

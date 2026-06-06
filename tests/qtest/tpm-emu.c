@@ -77,7 +77,7 @@ static void *tpm_emu_tpm_thread(void *data)
             s->tpm_msg->code = cpu_to_be32(TPM_FAIL);
             break;
         default:
-            g_debug("unsupport TPM version %u", s->tpm_version);
+            g_debug("unsupported TPM version %u", s->tpm_version);
             g_assert_not_reached();
         }
         qio_channel_write(ioc, (char *)s->tpm_msg, be32_to_cpu(s->tpm_msg->len),
@@ -115,7 +115,7 @@ void *tpm_emu_ctrl_thread(void *data)
         int *pfd = NULL;
         size_t nfd = 0;
 
-        qio_channel_readv_full(ioc, &iov, 1, &pfd, &nfd, &error_abort);
+        qio_channel_readv_full(ioc, &iov, 1, &pfd, &nfd, 0, &error_abort);
         cmd = be32_to_cpu(cmd);
         g_assert_cmpint(cmd, ==, CMD_SET_DATAFD);
         g_assert_cmpint(nfd, ==, 1);

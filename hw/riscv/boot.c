@@ -173,43 +173,7 @@ target_ulong riscv_load_firmware(const char *firmware_filename,
     exit(1);
 }
 
-target_ulong riscv_load_kernel(MachineState *machine,
-                               target_ulong kernel_start_addr,
-                               symbol_fn_t sym_cb)
-{
-    const char *kernel_filename = machine->kernel_filename;
-    uint64_t kernel_load_base, kernel_entry;
-
-    g_assert(kernel_filename != NULL);
-
-    /*
-     * NB: Use low address not ELF entry point to ensure that the fw_dynamic
-     * behaviour when loading an ELF matches the fw_payload, fw_jump and BBL
-     * behaviour, as well as fw_dynamic with a raw binary, all of which jump to
-     * the (expected) load address load address. This allows kernels to have
-     * separate SBI and ELF entry points (used by FreeBSD, for example).
-     */
-    if (load_elf_ram_sym(kernel_filename, NULL, NULL, NULL,
-                         NULL, &kernel_load_base, NULL, NULL, 0,
-                         EM_RISCV, 1, 0, NULL, true, sym_cb) > 0) {
-        return kernel_load_base;
-    }
-
-    if (load_uimage_as(kernel_filename, &kernel_entry, NULL, NULL,
-                       NULL, NULL, NULL) > 0) {
-        return kernel_entry;
-    }
-
-    if (load_image_targphys_as(kernel_filename, kernel_start_addr,
-                               current_machine->ram_size, NULL) > 0) {
-        return kernel_start_addr;
-    }
-
-    error_report("could not load kernel '%s'", kernel_filename);
-    exit(1);
-}
-
-void riscv_load_initrd(MachineState *machine, uint64_t kernel_entry)
+static void riscv_load_initrd(MachineState *machine, uint64_t kernel_entry)
 {
     const char *filename = machine->initrd_filename;
     uint64_t mem_size = machine->ram_size;
@@ -249,16 +213,105 @@ void riscv_load_initrd(MachineState *machine, uint64_t kernel_entry)
     }
 }
 
-uint64_t riscv_load_fdt(hwaddr dram_base, uint64_t mem_size, void *fdt)
+target_ulong riscv_load_kernel(MachineState *machine,
+                               RISCVHartArrayState *harts,
+                               target_ulong kernel_start_addr,
+                               bool load_initrd,
+                               symbol_fn_t sym_cb)
 {
-    uint64_t temp, fdt_addr;
-    hwaddr dram_end = dram_base + mem_size;
-    int ret, fdtsize = fdt_totalsize(fdt);
+    const char *kernel_filename = machine->kernel_filename;
+    uint64_t kernel_load_base, kernel_entry;
+    void *fdt = machine->fdt;
 
+    g_assert(kernel_filename != NULL);
+
+    /*
+     * NB: Use low address not ELF entry point to ensure that the fw_dynamic
+     * behaviour when loading an ELF matches the fw_payload, fw_jump and BBL
+     * behaviour, as well as fw_dynamic with a raw binary, all of which jump to
+     * the (expected) load address load address. This allows kernels to have
+     * separate SBI and ELF entry points (used by FreeBSD, for example).
+     */
+    if (load_elf_ram_sym(kernel_filename, NULL, NULL, NULL,
+                         NULL, &kernel_load_base, NULL, NULL, 0,
+                         EM_RISCV, 1, 0, NULL, true, sym_cb) > 0) {
+        kernel_entry = kernel_load_base;
+        goto out;
+    }
+
+    if (load_uimage_as(kernel_filename, &kernel_entry, NULL, NULL,
+                       NULL, NULL, NULL) > 0) {
+        goto out;
+    }
+
+    if (load_image_targphys_as(kernel_filename, kernel_start_addr,
+                               current_machine->ram_size, NULL) > 0) {
+        kernel_entry = kernel_start_addr;
+        goto out;
+    }
+
+    error_report("could not load kernel '%s'", kernel_filename);
+    exit(1);
+
+out:
+    /*
+     * For 32 bit CPUs 'kernel_entry' can be sign-extended by
+     * load_elf_ram_sym().
+     */
+    if (riscv_is_32bit(harts)) {
+        kernel_entry = extract64(kernel_entry, 0, 32);
+    }
+
+    if (load_initrd && machine->initrd_filename) {
+        riscv_load_initrd(machine, kernel_entry);
+    }
+
+    if (fdt && machine->kernel_cmdline && *machine->kernel_cmdline) {
+        qemu_fdt_setprop_string(fdt, "/chosen", "bootargs",
+                                machine->kernel_cmdline);
+    }
+
+    return kernel_entry;
+}
+
+/*
+ * This function makes an assumption that the DRAM interval
+ * 'dram_base' + 'dram_size' is contiguous.
+ *
+ * Considering that 'dram_end' is the lowest value between
+ * the end of the DRAM block and MachineState->ram_size, the
+ * FDT location will vary according to 'dram_base':
+ *
+ * - if 'dram_base' is less that 3072 MiB, the FDT will be
+ * put at the lowest value between 3072 MiB and 'dram_end';
+ *
+ * - if 'dram_base' is higher than 3072 MiB, the FDT will be
+ * put at 'dram_end'.
+ *
+ * The FDT is fdt_packed() during the calculation.
+ */
+uint64_t riscv_compute_fdt_addr(hwaddr dram_base, hwaddr dram_size,
+                                MachineState *ms)
+{
+    int ret = fdt_pack(ms->fdt);
+    hwaddr dram_end, temp;
+    int fdtsize;
+
+    /* Should only fail if we've built a corrupted tree */
+    g_assert(ret == 0);
+
+    fdtsize = fdt_totalsize(ms->fdt);
     if (fdtsize <= 0) {
         error_report("invalid device-tree");
         exit(1);
     }
+
+    /*
+     * A dram_size == 0, usually from a MemMapEntry[].size element,
+     * means that the DRAM block goes all the way to ms->ram_size.
+     */
+    dram_end = dram_base;
+    dram_end += dram_size ? MIN(ms->ram_size, dram_size) : ms->ram_size;
 
     /*
      * We should put fdt as far as possible to avoid kernel/initrd overwriting
@@ -267,11 +320,18 @@ uint64_t riscv_load_fdt(hwaddr dram_base, uint64_t mem_size, void *fdt)
      * end of dram or 3GB whichever is lesser.
      */
     temp = (dram_base < 3072 * MiB) ? MIN(dram_end, 3072 * MiB) : dram_end;
-    fdt_addr = QEMU_ALIGN_DOWN(temp - fdtsize, 2 * MiB);
 
-    ret = fdt_pack(fdt);
-    /* Should only fail if we've built a corrupted tree */
-    g_assert(ret == 0);
+    return QEMU_ALIGN_DOWN(temp - fdtsize, 2 * MiB);
+}
+
+/*
+ * 'fdt_addr' is received as hwaddr because boards might put
+ * the FDT beyond 32-bit addressing boundary.
+ */
+void riscv_load_fdt(hwaddr fdt_addr, void *fdt)
+{
+    uint32_t fdtsize = fdt_totalsize(fdt);
+
     /* copy in the device tree */
     qemu_fdt_dumpdtb(fdt, fdtsize);
 
@@ -279,8 +339,6 @@ uint64_t riscv_load_fdt(hwaddr dram_base, uint64_t mem_size, void *fdt)
                           &address_space_memory);
     qemu_register_reset_nosnapshotload(qemu_fdt_randomize_seeds,
                         rom_ptr_for_as(&address_space_memory, fdt_addr, fdtsize));
-
-    return fdt_addr;
 }
 
 void riscv_rom_copy_firmware_info(MachineState *machine, hwaddr rom_base,
@@ -354,6 +412,15 @@ void riscv_setup_rom_reset_vec(MachineState *machine, RISCVHartArrayState *harts
     } else {
         reset_vec[3] = 0x0202b583;   /*     ld     a1, 32(t0) */
         reset_vec[4] = 0x0182b283;   /*     ld     t0, 24(t0) */
+    }
+
+    if (!harts->harts[0].cfg.ext_zicsr) {
+        /*
+         * The Zicsr extension has been disabled, so let's ensure we don't
+         * run the CSR instruction. Let's fill the address with a non
+         * compressed nop.
+         */
+        reset_vec[2] = 0x00000013;   /*     addi   x0, x0, 0 */
     }
 
     /* copy in the reset vector in little_endian byte order */

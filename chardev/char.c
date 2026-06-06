@@ -25,6 +25,7 @@
 #include "qemu/osdep.h"
 #include "qemu/cutils.h"
 #include "monitor/monitor.h"
+#include "monitor/qmp-helpers.h"
 #include "qemu/config-file.h"
 #include "qemu/error-report.h"
 #include "qemu/qemu-print.h"
@@ -517,7 +518,7 @@ static const ChardevClass *char_get_class(const char *driver, Error **errp)
 
     if (object_class_is_abstract(oc)) {
         error_setg(errp, QERR_INVALID_PARAMETER_VALUE, "driver",
-                   "an abstract device type");
+                   "a non-abstract device type");
         return NULL;
     }
 
@@ -803,6 +804,9 @@ QemuOptsList qemu_chardev_opts = {
             .type = QEMU_OPT_STRING,
         },{
             .name = "path",
+            .type = QEMU_OPT_STRING,
+        },{
+            .name = "input-path",
             .type = QEMU_OPT_STRING,
         },{
             .name = "host",
@@ -1111,7 +1115,7 @@ ChardevReturn *qmp_chardev_change(const char *id, ChardevBackend *backend,
         return NULL;
     }
 
-    /* change successfull, clean up */
+    /* change successful, clean up */
     chr_new->handover_yank_instance = false;
 
     /*
@@ -1164,6 +1168,23 @@ void qmp_chardev_send_break(const char *id, Error **errp)
         return;
     }
     qemu_chr_be_event(chr, CHR_EVENT_BREAK);
+}
+
+bool qmp_add_client_char(int fd, bool has_skipauth, bool skipauth,
+                         bool has_tls, bool tls, const char *protocol,
+                         Error **errp)
+{
+    Chardev *s = qemu_chr_find(protocol);
+
+    if (!s) {
+        error_setg(errp, "protocol '%s' is invalid", protocol);
+        return false;
+    }
+    if (qemu_chr_add_client(s, fd) < 0) {
+        error_setg(errp, "failed to add client");
+        return false;
+    }
+    return true;
 }
 
 /*

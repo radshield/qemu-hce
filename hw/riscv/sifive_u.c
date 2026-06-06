@@ -99,7 +99,7 @@ static void create_fdt(SiFiveUState *s, const MemMapEntry *memmap,
     MachineState *ms = MACHINE(s);
     uint64_t mem_size = ms->ram_size;
     void *fdt;
-    int cpu, fdt_size;
+    int cpu;
     uint32_t *cells;
     char *nodename;
     uint32_t plic_phandle, prci_phandle, gpio_phandle, phandle = 1;
@@ -112,18 +112,10 @@ static void create_fdt(SiFiveUState *s, const MemMapEntry *memmap,
         "sifive,plic-1.0.0", "riscv,plic0"
     };
 
-    if (ms->dtb) {
-        fdt = ms->fdt = load_device_tree(ms->dtb, &fdt_size);
-        if (!fdt) {
-            error_report("load_device_tree() failed");
-            exit(1);
-        }
-    } else {
-        fdt = ms->fdt = create_device_tree(&fdt_size);
-        if (!fdt) {
-            error_report("create_device_tree() failed");
-            exit(1);
-        }
+    fdt = ms->fdt = create_device_tree(&s->fdt_size);
+    if (!fdt) {
+        error_report("create_device_tree() failed");
+        exit(1);
     }
 
     qemu_fdt_setprop_string(fdt, "/", "model", "SiFive HiFive Unleashed A00");
@@ -560,8 +552,16 @@ static void sifive_u_machine_init(MachineState *machine)
     qdev_connect_gpio_out(DEVICE(&(s->soc.gpio)), 10,
                           qemu_allocate_irq(sifive_u_machine_reset, NULL, 0));
 
-    /* create device tree */
-    create_fdt(s, memmap, riscv_is_32bit(&s->soc.u_cpus));
+    /* load/create device tree */
+    if (machine->dtb) {
+        machine->fdt = load_device_tree(machine->dtb, &s->fdt_size);
+        if (!machine->fdt) {
+            error_report("load_device_tree() failed");
+            exit(1);
+        }
+    } else {
+        create_fdt(s, memmap, riscv_is_32bit(&s->soc.u_cpus));
+    }
 
     if (s->start_in_flash) {
         /*
@@ -598,16 +598,8 @@ static void sifive_u_machine_init(MachineState *machine)
         kernel_start_addr = riscv_calc_kernel_start_addr(&s->soc.u_cpus,
                                                          firmware_end_addr);
 
-        kernel_entry = riscv_load_kernel(machine, kernel_start_addr, NULL);
-
-        if (machine->initrd_filename) {
-            riscv_load_initrd(machine, kernel_entry);
-        }
-
-        if (machine->kernel_cmdline && *machine->kernel_cmdline) {
-            qemu_fdt_setprop_string(machine->fdt, "/chosen", "bootargs",
-                                    machine->kernel_cmdline);
-        }
+        kernel_entry = riscv_load_kernel(machine, &s->soc.u_cpus,
+                                         kernel_start_addr, true, NULL);
     } else {
        /*
         * If dynamic firmware is used, it doesn't know where is the next mode
@@ -616,9 +608,11 @@ static void sifive_u_machine_init(MachineState *machine)
         kernel_entry = 0;
     }
 
-    /* Compute the fdt load address in dram */
-    fdt_load_addr = riscv_load_fdt(memmap[SIFIVE_U_DEV_DRAM].base,
-                                   machine->ram_size, machine->fdt);
+    fdt_load_addr = riscv_compute_fdt_addr(memmap[SIFIVE_U_DEV_DRAM].base,
+                                           memmap[SIFIVE_U_DEV_DRAM].size,
+                                           machine);
+    riscv_load_fdt(fdt_load_addr, machine->fdt);
+
     if (!riscv_is_32bit(&s->soc.u_cpus)) {
         start_addr_hi32 = (uint64_t)start_addr >> 32;
     }
@@ -680,9 +674,8 @@ static void sifive_u_machine_init(MachineState *machine)
 
     dinfo = drive_get(IF_SD, 0, 0);
     blk = dinfo ? blk_by_legacy_dinfo(dinfo) : NULL;
-    card_dev = qdev_new(TYPE_SD_CARD);
+    card_dev = qdev_new(TYPE_SD_CARD_SPI);
     qdev_prop_set_drive_err(card_dev, "drive", blk, &error_fatal);
-    qdev_prop_set_bit(card_dev, "spi", true);
     qdev_realize_and_unref(card_dev,
                            qdev_get_child_bus(sd_dev, "sd-bus"),
                            &error_fatal);
