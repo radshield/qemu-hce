@@ -299,7 +299,7 @@ void qxl_spice_reset_cursor(PCIQXLDevice *qxl)
     qxl->guest_cursor = 0;
     qemu_mutex_unlock(&qxl->track_lock);
     if (qxl->ssd.cursor) {
-        cursor_put(qxl->ssd.cursor);
+        cursor_unref(qxl->ssd.cursor);
     }
     qxl->ssd.cursor = cursor_builtin_hidden();
 }
@@ -1544,7 +1544,7 @@ static void qxl_create_guest_primary(PCIQXLDevice *qxl, int loadvm,
     }
 }
 
-/* return 1 if surface destoy was initiated (in QXL_ASYNC case) or
+/* return 1 if surface destroy was initiated (in QXL_ASYNC case) or
  * done (in QXL_SYNC case), 0 otherwise. */
 static int qxl_destroy_primary(PCIQXLDevice *d, qxl_async_io async)
 {
@@ -1591,7 +1591,10 @@ static void qxl_set_mode(PCIQXLDevice *d, unsigned int modenr, int loadvm)
     }
 
     d->guest_slots[0].slot = slot;
-    assert(qxl_add_memslot(d, 0, devmem, QXL_SYNC) == 0);
+    if (qxl_add_memslot(d, 0, devmem, QXL_SYNC) != 0) {
+        qxl_set_guest_bug(d, "device isn't initialized yet");
+        return;
+    }
 
     d->guest_primary.surface = surface;
     qxl_create_guest_primary(d, 0, QXL_SYNC);
@@ -2201,11 +2204,14 @@ static void qxl_realize_common(PCIQXLDevice *qxl, Error **errp)
 
     qemu_add_vm_change_state_handler(qxl_vm_change_state_handler, qxl);
 
-    qxl->update_irq = qemu_bh_new(qxl_update_irq_bh, qxl);
+    qxl->update_irq = qemu_bh_new_guarded(qxl_update_irq_bh, qxl,
+                                          &DEVICE(qxl)->mem_reentrancy_guard);
     qxl_reset_state(qxl);
 
-    qxl->update_area_bh = qemu_bh_new(qxl_render_update_area_bh, qxl);
-    qxl->ssd.cursor_bh = qemu_bh_new(qemu_spice_cursor_refresh_bh, &qxl->ssd);
+    qxl->update_area_bh = qemu_bh_new_guarded(qxl_render_update_area_bh, qxl,
+                                              &DEVICE(qxl)->mem_reentrancy_guard);
+    qxl->ssd.cursor_bh = qemu_bh_new_guarded(qemu_spice_cursor_refresh_bh, &qxl->ssd,
+                                             &DEVICE(qxl)->mem_reentrancy_guard);
 }
 
 static void qxl_realize_primary(PCIDevice *dev, Error **errp)

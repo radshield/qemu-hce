@@ -18,6 +18,7 @@
 #include "monitor/monitor.h"
 #include "monitor/hmp-target.h"
 #include "qapi/error.h"
+#include "qemu/error-report.h"
 #include "qapi/qapi-commands-misc-target.h"
 #include "exec/address-spaces.h"
 #include "sysemu/hw_accel.h"
@@ -265,10 +266,12 @@ void hmp_info_sgx(Monitor *mon, const QDict *qdict)
 
 bool sgx_epc_get_section(int section_nr, uint64_t *addr, uint64_t *size)
 {
-    PCMachineState *pcms = PC_MACHINE(qdev_get_machine());
+    PCMachineState *pcms =
+        (PCMachineState *)object_dynamic_cast(qdev_get_machine(),
+                                              TYPE_PC_MACHINE);
     SGXEPCDevice *epc;
 
-    if (pcms->sgx_epc.size == 0 || pcms->sgx_epc.nr_sections <= section_nr) {
+    if (!pcms || pcms->sgx_epc.size == 0 || pcms->sgx_epc.nr_sections <= section_nr) {
         return true;
     }
 

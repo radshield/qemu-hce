@@ -26,6 +26,8 @@
 #include "qapi/error.h"
 #include "trace.h"
 
+#include "hw/i386/kvm/xen_evtchn.h"
+
 /* MSI enable bit and maskall bit are in byte 1 in FLAGS register */
 #define MSIX_CONTROL_OFFSET (PCI_MSIX_FLAGS + 1)
 #define MSIX_ENABLE_MASK (PCI_MSIX_FLAGS_ENABLE >> 8)
@@ -123,6 +125,13 @@ static void msix_fire_vector_notifier(PCIDevice *dev,
 static void msix_handle_mask_update(PCIDevice *dev, int vector, bool was_masked)
 {
     bool is_masked = msix_is_masked(dev, vector);
+
+    if (xen_mode == XEN_EMULATE) {
+        MSIMessage msg = msix_prepare_message(dev, vector);
+
+        xen_evtchn_snoop_msi(dev, true, vector, msg.address, msg.data,
+                             is_masked);
+    }
 
     if (is_masked == was_masked) {
         return;
@@ -241,7 +250,7 @@ static uint64_t msix_pba_mmio_read(void *opaque, hwaddr addr,
     PCIDevice *dev = opaque;
     if (dev->msix_vector_poll_notifier) {
         unsigned vector_start = addr * 8;
-        unsigned vector_end = MIN(addr + size * 8, dev->msix_entries_nr);
+        unsigned vector_end = MIN((addr + size) * 8, dev->msix_entries_nr);
         dev->msix_vector_poll_notifier(dev, vector_start, vector_end);
     }
 
@@ -639,6 +648,7 @@ undo:
     }
     dev->msix_vector_use_notifier = NULL;
     dev->msix_vector_release_notifier = NULL;
+    dev->msix_vector_poll_notifier = NULL;
     return ret;
 }
 

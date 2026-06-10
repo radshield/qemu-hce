@@ -610,11 +610,8 @@ static void openpic_gbl_write(void *opaque, hwaddr addr, uint64_t val,
     case 0x10B0:
     case 0x10C0:
     case 0x10D0:
-        {
-            int idx;
-            idx = (addr - 0x10A0) >> 4;
-            write_IRQreg_ivpr(opp, opp->irq_ipi0 + idx, val);
-        }
+        idx = (addr - 0x10A0) >> 4;
+        write_IRQreg_ivpr(opp, opp->irq_ipi0 + idx, val);
         break;
     case 0x10E0: /* SPVE */
         opp->spve = val & opp->vector_mask;
@@ -1035,13 +1032,14 @@ static void openpic_cpu_write_internal(void *opaque, hwaddr addr,
         s_IRQ = IRQ_get_next(opp, &dst->servicing);
         /* Check queued interrupts. */
         n_IRQ = IRQ_get_next(opp, &dst->raised);
-        src = &opp->src[n_IRQ];
-        if (n_IRQ != -1 &&
-            (s_IRQ == -1 ||
-             IVPR_PRIORITY(src->ivpr) > dst->servicing.priority)) {
-            DPRINTF("Raise OpenPIC INT output cpu %d irq %d",
-                    idx, n_IRQ);
-            qemu_irq_raise(opp->dst[idx].irqs[OPENPIC_OUTPUT_INT]);
+        if (n_IRQ != -1) {
+            src = &opp->src[n_IRQ];
+            if (s_IRQ == -1 ||
+                IVPR_PRIORITY(src->ivpr) > dst->servicing.priority) {
+                DPRINTF("Raise OpenPIC INT output cpu %d irq %d",
+                        idx, n_IRQ);
+                qemu_irq_raise(opp->dst[idx].irqs[OPENPIC_OUTPUT_INT]);
+            }
         }
         break;
     default:

@@ -1,0 +1,33 @@
+#!/usr/bin/expect -f
+set timeout 120
+set kernel [lindex $argv 0]
+set qemu [lindex $argv 1]
+set builddir [file dirname $qemu]
+
+spawn {*}$qemu \
+    -M virt -m 512M -nographic \
+    -kernel $kernel \
+    -append "root=/dev/vda rw console=ttyS0" \
+    -drive file=rootfs.qcow2,format=qcow2,id=hd0,if=none \
+    -device virtio-blk-device,drive=hd0 \
+    -plugin $builddir/contrib/plugins/libcache.so,cores=4,dcachesize=32768,dassoc=8,dblksize=64,icachesize=32768,iassoc=8,iblksize=64,l2cachesize=2097152,l2assoc=32,l2blksize=64 \
+    -plugin $builddir/contrib/plugins/libfault_injection.so,l1d_flip_chance=1000000000,l1i_flip_chance=1000000000,l2_flip_chance=1000000000,mem_flip_chance=1000000000 \
+    -d plugin \
+    -loadvm root_shell
+
+expect {
+    "# " {}
+    timeout { puts "TIMEOUT waiting for shell"; exit 1 }
+}
+
+send "echo 'Fault injection running' && ls -la / && cat /proc/cpuinfo && echo 'SMOKE_TEST_DONE'\r"
+expect {
+    "SMOKE_TEST_DONE" {}
+    timeout { puts "TIMEOUT running workload"; exit 1 }
+}
+
+send "poweroff\r"
+expect {
+    eof {}
+    timeout { puts "TIMEOUT on shutdown"; exit 1 }
+}

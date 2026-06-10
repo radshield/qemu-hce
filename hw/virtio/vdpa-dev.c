@@ -25,7 +25,6 @@
 #include "hw/virtio/vhost.h"
 #include "hw/virtio/virtio.h"
 #include "hw/virtio/virtio-bus.h"
-#include "hw/virtio/virtio-access.h"
 #include "hw/virtio/vdpa-dev.h"
 #include "sysemu/sysemu.h"
 #include "sysemu/runstate.h"
@@ -193,7 +192,14 @@ static void
 vhost_vdpa_device_get_config(VirtIODevice *vdev, uint8_t *config)
 {
     VhostVdpaDevice *s = VHOST_VDPA_DEVICE(vdev);
+    int ret;
 
+    ret = vhost_dev_get_config(&s->dev, s->config, s->config_size,
+                            NULL);
+    if (ret < 0) {
+        error_report("get device config space failed");
+        return;
+    }
     memcpy(config, s->config, s->config_size);
 }
 
@@ -204,7 +210,7 @@ vhost_vdpa_device_set_config(VirtIODevice *vdev, const uint8_t *config)
     int ret;
 
     ret = vhost_dev_set_config(&s->dev, s->config, 0, s->config_size,
-                               VHOST_SET_CONFIG_TYPE_MASTER);
+                               VHOST_SET_CONFIG_TYPE_FRONTEND);
     if (ret) {
         error_report("set device config space failed");
         return;
@@ -251,7 +257,7 @@ static int vhost_vdpa_device_start(VirtIODevice *vdev, Error **errp)
 
     s->dev.acked_features = vdev->guest_features;
 
-    ret = vhost_dev_start(&s->dev, vdev, false);
+    ret = vhost_dev_start(&s->dev, vdev, true);
     if (ret < 0) {
         error_setg_errno(errp, -ret, "Error starting vhost");
         goto err_guest_notifiers;

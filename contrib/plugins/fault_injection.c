@@ -2,17 +2,14 @@
  * Fault Injection Plugin
  *
  * Simulates radiation-induced bit flips on memory and instruction accesses.
- * The flip probability depends on which cache level the accessed address
- * resides in: L1 data, L1 instruction, L2, or main memory.
+ * Flip probability depends on cache level (L1d, L1i, L2, or main memory).
+ * Requires the "cache" plugin to be loaded first.
  *
- * Requires the "cache" plugin to be loaded first. At init, this plugin
- * resolves cache_is_in_l1d, cache_is_in_l1i, and cache_is_in_l2 via dlsym.
+ * Data flips occur after the current access, affecting subsequent loads.
+ * Instruction flips flush the TB cache to force re-translation.
  *
- * Parameters:
- *   l1d_flip_chance=N   - chance (1 in N) of flipping a bit on L1d hit
- *   l1i_flip_chance=N   - chance (1 in N) of flipping a bit on L1i hit
- *   l2_flip_chance=N    - chance (1 in N) of flipping a bit on L2 hit
- *   mem_flip_chance=N   - chance (1 in N) of flipping a bit on cache miss
+ * Parameters (1 in N chance per access):
+ *   l1d_flip_chance, l1i_flip_chance, l2_flip_chance, mem_flip_chance
  *
  * Copyright (C) 2026
  * License: GNU GPL, version 2 or later.
@@ -52,10 +49,7 @@ static cache_check_fn is_in_l1d;
 static cache_check_fn is_in_l1i;
 static cache_check_fn is_in_l2;
 
-/**
- * Read a byte at the given virtual address, flip a random bit, and write it
- * back. Returns true if the flip was successfully applied.
- */
+/* Flip a random bit in the byte at vaddr. Returns true on success. */
 static bool flip_bit_at(uint64_t vaddr)
 {
     uint8_t byte;
@@ -76,16 +70,14 @@ static bool flip_bit_at(uint64_t vaddr)
     return true;
 }
 
-/**
- * Roll the dice for a 1-in-N chance. Returns true if the flip should happen.
- */
+/* Returns true with probability 1/chance. */
 static bool should_flip(uint64_t chance)
 {
     if (chance == 0) {
         return false;
     }
     g_mutex_lock(&rng_lock);
-    bool result = (g_rand_int_range(rng, 0, chance) == 0);
+    bool result = (g_rand_int_range(rng, 0, (gint32)chance) == 0);
     g_mutex_unlock(&rng_lock);
     return result;
 }
@@ -121,12 +113,24 @@ static void vcpu_mem_access(unsigned int vcpu_index,
     }
 }
 
+/* Instruction fault: check L1i vs main memory, flip a bit, flush TBs. */
 static void vcpu_insn_exec(unsigned int vcpu_index, void *userdata)
 {
     uint64_t vaddr = (uint64_t)(uintptr_t)userdata;
+    uint64_t chance;
+    uint64_t *counter;
 
-    if (should_flip(l1i_flip_chance) && flip_bit_at(vaddr)) {
-        __atomic_fetch_add(&l1i_flips, 1, __ATOMIC_SEQ_CST);
+    if (is_in_l1i && is_in_l1i(vaddr, vcpu_index)) {
+        chance = l1i_flip_chance;
+        counter = &l1i_flips;
+    } else {
+        chance = mem_flip_chance;
+        counter = &mem_flips;
+    }
+
+    if (should_flip(chance) && flip_bit_at(vaddr)) {
+        __atomic_fetch_add(counter, 1, __ATOMIC_SEQ_CST);
+        qemu_plugin_tb_flush();
     }
 }
 
@@ -141,7 +145,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
                                          QEMU_PLUGIN_CB_NO_REGS,
                                          QEMU_PLUGIN_MEM_RW, NULL);
 
-        if (l1i_flip_chance) {
+        if (l1i_flip_chance || mem_flip_chance) {
             uint64_t vaddr = qemu_plugin_insn_vaddr(insn);
             qemu_plugin_register_vcpu_insn_exec_cb(
                 insn, vcpu_insn_exec, QEMU_PLUGIN_CB_NO_REGS,

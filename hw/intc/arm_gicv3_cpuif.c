@@ -21,6 +21,8 @@
 #include "hw/irq.h"
 #include "cpu.h"
 #include "target/arm/cpregs.h"
+#include "sysemu/tcg.h"
+#include "sysemu/qtest.h"
 
 /*
  * Special case return value from hppvi_index(); must be larger than
@@ -144,7 +146,7 @@ static uint32_t icv_fullprio_mask(GICv3CPUState *cs)
      * with the group priority, whose mask depends on the value of VBPR
      * for the interrupt group.)
      */
-    return ~0U << (8 - cs->vpribits);
+    return (~0U << (8 - cs->vpribits)) & 0xff;
 }
 
 static int ich_highest_active_virt_prio(GICv3CPUState *cs)
@@ -751,7 +753,7 @@ static void icv_activate_vlpi(GICv3CPUState *cs)
     int regno = aprbit / 32;
     int regbit = aprbit % 32;
 
-    cs->ich_apr[cs->hppvlpi.grp][regno] |= (1 << regbit);
+    cs->ich_apr[cs->hppvlpi.grp][regno] |= (1U << regbit);
     gicv3_redist_vlpi_pending(cs, cs->hppvlpi.irq, 0);
 }
 
@@ -801,7 +803,7 @@ static uint32_t icc_fullprio_mask(GICv3CPUState *cs)
      * with the group priority, whose mask depends on the value of BPR
      * for the interrupt group.)
      */
-    return ~0U << (8 - cs->pribits);
+    return (~0U << (8 - cs->pribits)) & 0xff;
 }
 
 static inline int icc_min_bpr(GICv3CPUState *cs)
@@ -1065,7 +1067,7 @@ static uint64_t icc_hppir0_value(GICv3CPUState *cs, CPUARMState *env)
      */
     bool irq_is_secure;
 
-    if (cs->hppi.prio == 0xff) {
+    if (icc_no_enabled_hppi(cs)) {
         return INTID_SPURIOUS;
     }
 
@@ -1102,7 +1104,7 @@ static uint64_t icc_hppir1_value(GICv3CPUState *cs, CPUARMState *env)
      */
     bool irq_is_secure;
 
-    if (cs->hppi.prio == 0xff) {
+    if (icc_no_enabled_hppi(cs)) {
         return INTID_SPURIOUS;
     }
 
@@ -1432,16 +1434,25 @@ static void icv_eoir_write(CPUARMState *env, const ARMCPRegInfo *ri,
     idx = icv_find_active(cs, irq);
 
     if (idx < 0) {
-        /* No valid list register corresponding to EOI ID */
-        icv_increment_eoicount(cs);
+        /*
+         * No valid list register corresponding to EOI ID; if this is a vLPI
+         * not in the list regs then do nothing; otherwise increment EOI count
+         */
+        if (irq < GICV3_LPI_INTID_START) {
+            icv_increment_eoicount(cs);
+        }
     } else {
         uint64_t lr = cs->ich_lr_el2[idx];
         int thisgrp = (lr & ICH_LR_EL2_GROUP) ? GICV3_G1NS : GICV3_G0;
         int lr_gprio = ich_lr_prio(lr) & icv_gprio_mask(cs, grp);
 
         if (thisgrp == grp && lr_gprio == dropprio) {
-            if (!icv_eoi_split(env, cs)) {
-                /* Priority drop and deactivate not split: deactivate irq now */
+            if (!icv_eoi_split(env, cs) || irq >= GICV3_LPI_INTID_START) {
+                /*
+                 * Priority drop and deactivate not split: deactivate irq now.
+                 * LPIs always get their active state cleared immediately
+                 * because no separate deactivate is expected.
+                 */
                 icv_deactivate_irq(cs, idx);
             }
         }
@@ -2376,6 +2387,7 @@ static const ARMCPRegInfo gicv3_cpuif_reginfo[] = {
       .opc0 = 3, .opc1 = 0, .crn = 12, .crm = 12, .opc2 = 6,
       .type = ARM_CP_IO | ARM_CP_NO_RAW,
       .access = PL1_RW, .accessfn = gicv3_fiq_access,
+      .fgt = FGT_ICC_IGRPENN_EL1,
       .readfn = icc_igrpen_read,
       .writefn = icc_igrpen_write,
     },
@@ -2384,6 +2396,7 @@ static const ARMCPRegInfo gicv3_cpuif_reginfo[] = {
       .opc0 = 3, .opc1 = 0, .crn = 12, .crm = 12, .opc2 = 7,
       .type = ARM_CP_IO | ARM_CP_NO_RAW,
       .access = PL1_RW, .accessfn = gicv3_irq_access,
+      .fgt = FGT_ICC_IGRPENN_EL1,
       .readfn = icc_igrpen_read,
       .writefn = icc_igrpen_write,
     },
@@ -2810,6 +2823,8 @@ void gicv3_init_cpuif(GICv3State *s)
          * which case we'd get the wrong value.
          * So instead we define the regs with no ri->opaque info, and
          * get back to the GICv3CPUState from the CPUARMState.
+         *
+         * These CP regs callbacks can be called from either TCG or HVF code.
          */
         define_arm_cp_regs(cpu, gicv3_cpuif_reginfo);
 
@@ -2905,6 +2920,16 @@ void gicv3_init_cpuif(GICv3State *s)
                 define_arm_cp_regs(cpu, gicv3_cpuif_ich_apxr23_reginfo);
             }
         }
-        arm_register_el_change_hook(cpu, gicv3_cpuif_el_change_hook, cs);
+        if (tcg_enabled() || qtest_enabled()) {
+            /*
+             * We can only trap EL changes with TCG. However the GIC interrupt
+             * state only changes on EL changes involving EL2 or EL3, so for
+             * the non-TCG case this is OK, as EL2 and EL3 can't exist.
+             */
+            arm_register_el_change_hook(cpu, gicv3_cpuif_el_change_hook, cs);
+        } else {
+            assert(!arm_feature(&cpu->env, ARM_FEATURE_EL2));
+            assert(!arm_feature(&cpu->env, ARM_FEATURE_EL3));
+        }
     }
 }
