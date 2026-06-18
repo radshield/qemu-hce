@@ -24,14 +24,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential meson ninja-build pkg-config \
+            build-essential clang meson ninja-build pkg-config \
             libglib2.0-dev libpixman-1-dev \
             python3 python3-venv qemu-utils expect socat
 
       - name: Build QEMU
         run: |
           cd qemu-hce
-          ./configure --target-list=riscv64-softmmu --enable-plugins
+          CC=clang CXX=clang++ ./configure --target-list=riscv64-softmmu --enable-plugins
           make -j$(nproc)
 
       - name: Find latest SGL build run
