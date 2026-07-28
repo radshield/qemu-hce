@@ -41,6 +41,7 @@
 #include "exec/exec-all.h"
 #include "exec/cpu-common.h"
 #include "exec/ram_addr.h"
+#include "exec/tb-flush.h"
 #include "disas/disas.h"
 #include "plugin.h"
 #ifndef CONFIG_USER_ONLY
