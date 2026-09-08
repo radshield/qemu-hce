@@ -1,0 +1,33 @@
+name: Build qemu-hce riscv
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout QEMU
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang meson ninja-build pkg-config \
+            libglib2.0-dev libpixman-1-dev \
+            python3 python3-venv qemu-utils expect socat
+
+      - name: Build QEMU
+        run: |
+          CC=clang CXX=clang++ ./configure --target-list=riscv64-softmmu --enable-plugins
+          make -j$(nproc)
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v7
+        with:
+          path: ./build/qemu-system-riscv64
