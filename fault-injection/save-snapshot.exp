@@ -1,5 +1,5 @@
 #!/usr/bin/expect -f
-set timeout 180
+set timeout 600
 set kernel [lindex $argv 0]
 set qemu [lindex $argv 1]
 
