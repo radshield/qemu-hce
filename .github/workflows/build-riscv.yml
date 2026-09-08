@@ -30,4 +30,5 @@ jobs:
       - name: Upload executable
         uses: actions/upload-artifact@v7
         with:
-          path: ./build/qemu-system-riscv64
+          name: qemu-system-riscv64
+          path: ./build
